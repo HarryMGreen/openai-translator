@@ -40,7 +40,7 @@ jobs:
   build-tauri:
     needs: create-release
     permissions:
-      contents: write-all
+      contents: write
     strategy:
       fail-fast: false
       matrix:
