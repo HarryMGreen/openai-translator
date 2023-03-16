@@ -99,6 +99,8 @@ jobs:
         with:
           releaseId: ${{ needs.create-release.outputs.release_id }}
           args: --target ${{ matrix.settings.target }}
+          releaseDraft: true
+          prerelease: false
           
 
   #build-browser-extension:
