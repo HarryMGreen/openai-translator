@@ -4,9 +4,11 @@ import { IBrowser, ISettings } from './types'
 export const defaultAPIURL = 'https://api.openai.com'
 export const defaultAPIURLPath = '/v1/chat/completions'
 export const defaultProvider = 'OpenAI'
+export const defaultAPIModel = 'gpt-3.5-turbo'
 
 export const defaultAutoTranslate = false
 export const defaultTargetLanguage = 'zh-Hans'
+export const defaultAlwaysShowIcons = true
 
 export const defaulti18n = 'en'
 
@@ -21,11 +23,14 @@ const settingKeys: Record<keyof ISettings, number> = {
     apiKeys: 1,
     apiURL: 1,
     apiURLPath: 1,
+    apiModel: 1,
     provider: 1,
     autoTranslate: 1,
     defaultTranslateMode: 1,
     defaultTargetLanguage: 1,
+    alwaysShowIcons: 1,
     hotkey: 1,
+    ocrHotkey: 1,
     themeType: 1,
     i18n: 1,
     restorePreviousPosition: 1,
@@ -45,6 +50,9 @@ export async function getSettings(): Promise<ISettings> {
     if (!settings.apiURLPath) {
         settings.apiURLPath = defaultAPIURLPath
     }
+    if (!settings.apiModel) {
+        settings.apiModel = defaultAPIModel
+    }
     if (!settings.provider) {
         settings.provider = defaultProvider
     }
@@ -56,6 +64,9 @@ export async function getSettings(): Promise<ISettings> {
     }
     if (!settings.defaultTargetLanguage) {
         settings.defaultTargetLanguage = defaultTargetLanguage
+    }
+    if (settings.alwaysShowIcons === undefined || settings.alwaysShowIcons === null) {
+        settings.alwaysShowIcons = defaultAlwaysShowIcons
     }
     if (!settings.i18n) {
         settings.i18n = defaulti18n

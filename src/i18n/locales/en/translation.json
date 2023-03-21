@@ -14,10 +14,12 @@
   "Default Service Provider": "Default Service Provider",
   "Default Translate Mode": "Default Translate Mode",
   "Auto Translate": "Auto Translate",
+  "Always show icons": "Always show icons",
   "Default Target Language": "Default Target Language",
   "Theme": "Theme",
   "i18n": "Language",
   "Hotkey": "Hotkey",
+  "OCR Hotkey": "OCR Hotkey",
   "Please press the hotkey you want to set.": "Please press the hotkey you want to set.",
   "Click above to set hotkeys.": "Click above to set hotkeys.",
   "Save": "Save",
@@ -31,5 +33,6 @@
   "Go to the": "Go to the",
   "OpenAI page": "OpenAI page",
   "to get your API Key. You can separate multiple API Keys with English commas to achieve quota doubling and load balancing.": "to get your API Key. You can separate multiple API Keys with English commas to achieve quota doubling and load balancing.",
-  "Restore Previous Position": "Restore Previous Position"
+  "Restore Previous Position": "Restore Previous Position",
+  "API Model": "API Model"
 }

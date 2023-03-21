@@ -88,15 +88,17 @@ const useStyles = createUseStyles({
         props.isDesktopApp
             ? {
                   'position': 'fixed',
+                  'backdropFilter': 'blur(10px)',
                   'zIndex': 1,
                   'left': 0,
-                  'top': '0',
+                  'top': 0,
                   'width': '100%',
                   'boxSizing': 'border-box',
                   'padding': '30px  10px 5px',
-                  'background': props.themeType === 'dark' ? '#1f1f1f' : '#fff',
+                  'background': props.themeType === 'dark' ? 'rgba(31, 31, 31, 0.5)' : 'rgba(255, 255, 255, 0.5)',
                   'display': 'flex',
                   'flexDirection': 'row',
+                  'flexFlow': 'row nowrap',
                   'cursor': 'move',
                   'alignItems': 'center',
                   'borderBottom': `1px solid ${props.theme.colors.borderTransparent}`,
@@ -111,7 +113,7 @@ const useStyles = createUseStyles({
                   'alignItems': 'center',
                   'padding': '5px 10px',
                   'borderBottom': `1px solid ${props.theme.colors.borderTransparent}`,
-                  'minWidth': '550px',
+                  'minWidth': '580px',
                   '-ms-user-select': 'none',
                   '-webkit-user-select': 'none',
                   'user-select': 'none',
@@ -132,29 +134,42 @@ const useStyles = createUseStyles({
         'user-select': 'none',
     },
     'iconText': (props: IThemedStyleProps) => ({
-        color: props.themeType === 'dark' ? props.theme.colors.contentSecondary : props.theme.colors.contentPrimary,
-        fontSize: '12px',
-        fontWeight: 600,
-        cursor: 'unset',
+        'color': props.themeType === 'dark' ? props.theme.colors.contentSecondary : props.theme.colors.contentPrimary,
+        'fontSize': '12px',
+        'fontWeight': 600,
+        'cursor': 'unset',
+        '@media screen and (max-width: 570px)': {
+            display: props.isDesktopApp ? 'none' : undefined,
+        },
     }),
     'paragraph': {
-        margin: '14px 0',
+        'margin': '0.5em 0',
+        '-ms-user-select': 'text',
+        '-webkit-user-select': 'text',
+        'user-select': 'text',
     },
-    'popupCardHeaderButtonGroup': {
-        display: 'flex',
-        flexDirection: 'row',
-        alignItems: 'center',
-        gap: '5px',
-        marginLeft: '10px',
-    },
-    'popupCardHeaderActionsContainer': {
-        display: 'flex',
-        flexShrink: 0,
-        flexDirection: 'row',
-        alignItems: 'center',
-        padding: '5px 10px',
-        gap: '10px',
-    },
+    'popupCardHeaderButtonGroup': (props: IThemedStyleProps) => ({
+        'display': 'flex',
+        'flexDirection': 'row',
+        'alignItems': 'center',
+        'gap': '5px',
+        'marginLeft': '10px',
+        '@media screen and (max-width: 460px)': {
+            marginLeft: props.isDesktopApp ? '5px' : undefined,
+        },
+    }),
+    'popupCardHeaderActionsContainer': (props: IThemedStyleProps) => ({
+        'display': 'flex',
+        'flexShrink': 0,
+        'flexDirection': 'row',
+        'alignItems': 'center',
+        'padding': '5px 10px',
+        'gap': '10px',
+        '@media screen and (max-width: 460px)': {
+            padding: props.isDesktopApp ? '5px 0' : undefined,
+            gap: props.isDesktopApp ? '5px' : undefined,
+        },
+    }),
     'from': {
         display: 'flex',
         color: '#999',
@@ -294,26 +309,6 @@ const useStyles = createUseStyles({
     'OCRStatusBar': (props: IThemedStyleProps) => ({
         color: props.theme.colors.contentSecondary,
     }),
-    '@media screen and (max-width: 570px)': (props: IThemedStyleProps) =>
-        props.isDesktopApp
-            ? {
-                  iconText: {
-                      display: 'none',
-                  },
-              }
-            : undefined,
-    '@media screen and (max-width: 460px)': (props: IThemedStyleProps) =>
-        props.isDesktopApp
-            ? {
-                  popupCardHeaderActionsContainer: {
-                      padding: '5px 0',
-                      gap: '5px',
-                  },
-                  popupCardHeaderButtonGroup: {
-                      marginLeft: '5px',
-                  },
-              }
-            : undefined,
 })
 
 interface IActionStrItem {
@@ -371,7 +366,15 @@ export function PopupCard(props: IPopupCardProps) {
 
     const highlightRef = useRef<HighlightInTextarea | null>(null)
 
-    const { t } = useTranslation()
+    const { t, i18n } = useTranslation()
+    useEffect(() => {
+        ;(async () => {
+            const settings = await getSettings()
+            if (settings.i18n !== (i18n as any).language) {
+                ;(i18n as any).changeLanguage(settings.i18n)
+            }
+        })()
+    }, [])
 
     const [autoFocus, setAutoFocus] = useState(false)
 
@@ -932,7 +935,7 @@ export function PopupCard(props: IPopupCardProps) {
                                                 overrides={{
                                                     Root: {
                                                         style: {
-                                                            minWidth: '100px',
+                                                            minWidth: '110px',
                                                         },
                                                     },
                                                 }}
@@ -969,7 +972,7 @@ export function PopupCard(props: IPopupCardProps) {
                                                 overrides={{
                                                     Root: {
                                                         style: {
-                                                            minWidth: '100px',
+                                                            minWidth: '110px',
                                                         },
                                                     },
                                                 }}
@@ -1146,7 +1149,7 @@ export function PopupCard(props: IPopupCardProps) {
                                                                   )
                                                         }
                                                         onChange={(e) => setEditableText(e.target.value)}
-                                                        onKeyDown={(e) => {
+                                                        onKeyPress={(e) => {
                                                             if (e.key === 'Enter') {
                                                                 if (!e.shiftKey) {
                                                                     e.preventDefault()
@@ -1246,6 +1249,7 @@ export function PopupCard(props: IPopupCardProps) {
                                                                 icon: '👏',
                                                             })
                                                         }}
+                                                        options={{ format: 'text/plain' }}
                                                     >
                                                         <div className={styles.actionButton}>
                                                             <RxCopy size={13} />
@@ -1351,6 +1355,7 @@ export function PopupCard(props: IPopupCardProps) {
                                                                                 icon: '👏',
                                                                             })
                                                                         }}
+                                                                        options={{ format: 'text/plain' }}
                                                                     >
                                                                         <div className={styles.actionButton}>
                                                                             <RxCopy size={13} />

@@ -40,11 +40,14 @@ export interface ISettings {
     apiKeys: string
     apiURL: string
     apiURLPath: string
+    apiModel: string
     provider: Provider | 'OpenAI'
     autoTranslate: boolean
     defaultTranslateMode: TranslateMode | 'nop'
     defaultTargetLanguage: string
+    alwaysShowIcons: boolean
     hotkey?: string
+    ocrHotkey?: string
     themeType?: ThemeType
     i18n?: string
     restorePreviousPosition?: boolean

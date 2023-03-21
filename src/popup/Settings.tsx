@@ -12,7 +12,7 @@ import { createForm } from '../components/Form'
 import formStyles from 'inline:../components/Form/index.module.css'
 import { Button } from 'baseui-sd/button'
 import './index.css'
-import { TranslateMode, Provider } from '../content_script/translate'
+import { TranslateMode, Provider, APIModel } from '../content_script/translate'
 import { Select, Value, Option } from 'baseui-sd/select'
 import { Checkbox } from 'baseui-sd/checkbox'
 import { supportLanguages } from '../content_script/lang'
@@ -24,6 +24,7 @@ import { useTheme } from '../common/hooks/useTheme'
 import { useThemeType } from '../common/hooks/useThemeType'
 import { IoCloseCircle } from 'react-icons/io5'
 import { useTranslation } from 'react-i18next'
+import AppConfig from '../../package.json'
 
 const langOptions: Value = supportLanguages.reduce((acc, [id, label]) => {
     return [
@@ -63,6 +64,25 @@ interface ITranslateModeSelectorProps {
     value?: TranslateMode | 'nop'
     onChange?: (value: TranslateMode | 'nop') => void
     onBlur?: () => void
+}
+
+interface AlwaysShowIconsCheckboxProps {
+    value?: boolean
+    onChange?: (value: boolean) => void
+    onBlur?: () => void
+}
+
+function AlwaysShowIconsCheckbox(props: AlwaysShowIconsCheckboxProps) {
+    return (
+        <Checkbox
+            checkmarkType='toggle_round'
+            checked={props.value}
+            onChange={(e) => {
+                props.onChange?.(e.target.checked)
+                props.onBlur?.()
+            }}
+        />
+    )
 }
 
 interface AutoTranslateCheckboxProps {
@@ -188,6 +208,45 @@ function Ii18nSelector(props: Ii18nSelectorProps) {
                 props.onChange?.(params.value[0].id as string)
                 // eslint-disable-next-line @typescript-eslint/no-explicit-any
                 ;(i18n as any).changeLanguage(params.value[0].id as string)
+            }}
+            options={options}
+        />
+    )
+}
+
+interface APIModelSelectorProps {
+    value?: string
+    onChange?: (value: string) => void
+    onBlur?: () => void
+}
+
+function APIModelSelector(props: APIModelSelectorProps) {
+    const options = [
+        { label: 'gpt-3.5-turbo', id: 'gpt-3.5-turbo' },
+        { label: 'gpt-3.5-turbo-0301', id: 'gpt-3.5-turbo-0301' },
+        { label: 'gpt-4', id: 'gpt-4' },
+        { label: 'gpt-4-0314', id: 'gpt-4-0314' },
+        { label: 'gpt-4-32k', id: 'gpt-4-32k' },
+        { label: 'gpt-4-32k-0314', id: 'gpt-4-32k-0314' },
+    ]
+
+    return (
+        <Select
+            size='compact'
+            onBlur={props.onBlur}
+            searchable={false}
+            clearable={false}
+            value={
+                props.value
+                    ? [
+                          {
+                              id: props.value,
+                          },
+                      ]
+                    : undefined
+            }
+            onChange={(params) => {
+                props.onChange?.(params.value[0].id as APIModel)
             }}
             options={options}
         />
@@ -413,10 +472,12 @@ export function Settings(props: IPopupProps) {
         apiKeys: '',
         apiURL: utils.defaultAPIURL,
         apiURLPath: utils.defaultAPIURLPath,
+        apiModel: utils.defaultAPIModel,
         provider: utils.defaultProvider,
         autoTranslate: utils.defaultAutoTranslate,
         defaultTranslateMode: 'translate',
         defaultTargetLanguage: utils.defaultTargetLanguage,
+        alwaysShowIcons: utils.defaultAlwaysShowIcons,
         hotkey: '',
         i18n: utils.defaulti18n,
         restorePreviousPosition: false,
@@ -441,7 +502,7 @@ export function Settings(props: IPopupProps) {
         setValues(values_)
     }, [])
 
-    const onSubmmit = useCallback(async (data: ISettings) => {
+    const onSubmit = useCallback(async (data: ISettings) => {
         setLoading(true)
         const oldSettings = await utils.getSettings()
         await utils.setSettings(data)
@@ -473,7 +534,7 @@ export function Settings(props: IPopupProps) {
                 paddingTop: isDesktopApp ? '98px' : undefined,
                 paddingBottom: isDesktopApp ? '32px' : undefined,
                 background: themeType === 'dark' ? '#1f1f1f' : '#fff',
-                minWidth: isDesktopApp ? undefined : 400,
+                minWidth: isDesktopApp ? 450 : 400,
             }}
         >
             <style>{formStyles}</style>
@@ -497,14 +558,31 @@ export function Settings(props: IPopupProps) {
                         data-tauri-drag-region
                     >
                         <img width='22' src={icon} alt='logo' />
-                        <h2>OpenAI Translator</h2>
+                        <h2>
+                            OpenAI Translator
+                            {AppConfig?.version ? (
+                                <a
+                                    href='https://github.com/yetone/openai-translator/releases'
+                                    target='_blank'
+                                    rel='noreferrer'
+                                    style={{
+                                        fontSize: '0.65em',
+                                        marginLeft: '5px',
+                                        color: 'unset',
+                                        textDecoration: 'none',
+                                    }}
+                                >
+                                    {AppConfig.version}
+                                </a>
+                            ) : null}
+                        </h2>
                     </nav>
                     <Form
                         form={form}
                         style={{
                             padding: '20px 25px',
                         }}
-                        onFinish={onSubmmit}
+                        onFinish={onSubmit}
                         initialValues={values}
                         onValuesChange={onChange}
                     >
@@ -533,6 +611,9 @@ export function Settings(props: IPopupProps) {
                         >
                             <Input autoFocus type='password' size='compact' onBlur={onBlur} />
                         </FormItem>
+                        <FormItem name='apiModel' label={t('API Model')}>
+                            <APIModelSelector onBlur={onBlur} />
+                        </FormItem>
                         <FormItem required name='apiURL' label={t('API URL')}>
                             <Input size='compact' onBlur={onBlur} />
                         </FormItem>
@@ -541,6 +622,9 @@ export function Settings(props: IPopupProps) {
                         </FormItem>
                         <FormItem name='defaultTranslateMode' label={t('Default Translate Mode')}>
                             <TranslateModeSelector onBlur={onBlur} />
+                        </FormItem>
+                        <FormItem name='alwaysShowIcons' label={t('Always show icons')}>
+                            <AlwaysShowIconsCheckbox onBlur={onBlur} />
                         </FormItem>
                         <FormItem name='autoTranslate' label={t('Auto Translate')}>
                             <AutoTranslateCheckbox onBlur={onBlur} />
@@ -558,6 +642,9 @@ export function Settings(props: IPopupProps) {
                             <Ii18nSelector onBlur={onBlur} />
                         </FormItem>
                         <FormItem name='hotkey' label={t('Hotkey')}>
+                            <HotkeyRecorder onBlur={onBlur} />
+                        </FormItem>
+                        <FormItem name='ocrHotkey' label={t('OCR Hotkey')}>
                             <HotkeyRecorder onBlur={onBlur} />
                         </FormItem>
                         <div
