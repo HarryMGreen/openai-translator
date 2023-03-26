@@ -1,9 +1,8 @@
 /* eslint-disable no-control-regex */
 /* eslint-disable no-misleading-character-class */
 
-import { franc } from 'franc'
 import { isTraditional } from '../common/traditional-or-simplified'
-import convert3To1 from 'iso-639-3-to-1'
+import ISO6391 from 'iso-639-1'
 
 export const supportLanguages: [string, string][] = [
     // ['auto', 'auto'],
@@ -83,9 +82,11 @@ export async function detectLang(text: string): Promise<string | null> {
 }
 
 export async function _detectLang(text: string): Promise<string | null> {
+    const detectedText = text.trim()
     return new Promise((resolve) => {
-        const iso639code = franc(text, { minLength: 3 })
-        const result = convert3To1(iso639code)
-        resolve(result)
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const langName = (window as any).detectLanguage(detectedText)
+        const langCode = ISO6391.getCode(langName)
+        resolve(langCode)
     })
 }

@@ -16,13 +16,13 @@ import { detectLang, supportLanguages } from './lang'
 import { translate, TranslateMode } from './translate'
 import { Select, Value, Option } from 'baseui-sd/select'
 import { CopyToClipboard } from 'react-copy-to-clipboard'
-import { RxCopy, RxReload, RxSpeakerLoud } from 'react-icons/rx'
+import { RxCopy, RxEraser, RxReload, RxSpeakerLoud } from 'react-icons/rx'
 import { calculateMaxXY, queryPopupCardElement } from './utils'
 import { clsx } from 'clsx'
 import { Button } from 'baseui-sd/button'
 import { ErrorBoundary } from 'react-error-boundary'
 import { ErrorFallback } from '../components/ErrorFallback'
-import { getSettings, isDesktopApp, isTauri } from '../common/utils'
+import { isDesktopApp, isTauri } from '../common/utils'
 import { Settings } from '../popup/Settings'
 import { documentPadding } from './consts'
 import Dropzone from 'react-dropzone'
@@ -32,11 +32,13 @@ import rocket from './assets/images/rocket.gif'
 import partyPopper from './assets/images/party-popper.gif'
 import { Event } from '@tauri-apps/api/event'
 import SpeakerMotion from '../components/SpeakerMotion'
+import IpLocationNotification from '../components/IpLocationNotification'
 import { HighlightInTextarea } from '../common/highlight-in-textarea'
 import LRUCache from 'lru-cache'
 import { ISettings, IThemedStyleProps } from '../common/types'
 import { useTheme } from '../common/hooks/useTheme'
 import { speak } from '../common/tts'
+import { useSettings } from '../common/hooks/useSettings'
 
 const cache = new LRUCache({
     max: 500,
@@ -74,7 +76,7 @@ const useStyles = createUseStyles({
                   paddingLeft: '10px',
                   display: 'flex',
                   alignItems: 'center',
-                  background: props.themeType === 'dark' ? '#1f1f1f' : '#fff',
+                  background: props.theme.colors.backgroundPrimary,
               }
             : {
                   color: props.theme.colors.contentSecondary,
@@ -371,14 +373,14 @@ export function PopupCard(props: IPopupCardProps) {
     const highlightRef = useRef<HighlightInTextarea | null>(null)
 
     const { t, i18n } = useTranslation()
+    const { settings } = useSettings()
     useEffect(() => {
-        ;(async () => {
-            const settings = await getSettings()
-            if (settings.i18n !== (i18n as any).language) {
-                ;(i18n as any).changeLanguage(settings.i18n)
-            }
-        })()
-    }, [])
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        if (settings?.i18n !== (i18n as any).language) {
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            ;(i18n as any).changeLanguage(settings?.i18n)
+        }
+    }, [settings])
 
     const [autoFocus, setAutoFocus] = useState(false)
 
@@ -415,13 +417,10 @@ export function PopupCard(props: IPopupCardProps) {
 
     const [translateMode, setTranslateMode] = useState<TranslateMode | ''>('')
     useEffect(() => {
-        ;(async () => {
-            const settings = await getSettings()
-            if (settings.defaultTranslateMode !== 'nop') {
-                setTranslateMode(settings.defaultTranslateMode)
-            }
-        })()
-    }, [])
+        if (settings && settings.defaultTranslateMode !== 'nop') {
+            setTranslateMode(settings.defaultTranslateMode)
+        }
+    }, [settings])
     const isTranslate = translateMode === 'translate'
     useEffect(() => {
         if (!isTranslate) {
@@ -498,11 +497,10 @@ export function PopupCard(props: IPopupCardProps) {
                 (translateMode === 'translate' || translateMode === 'analyze') &&
                 !stopAutomaticallyChangeDetectTo.current
             ) {
-                const settings = await getSettings()
-                setDetectTo(from === 'zh-Hans' || from === 'zh-Hant' ? 'en' : settings.defaultTargetLanguage)
+                setDetectTo(from === 'zh-Hans' || from === 'zh-Hant' ? 'en' : settings?.defaultTargetLanguage ?? 'en')
             }
         })()
-    }, [originalText, translateMode])
+    }, [originalText, translateMode, settings])
 
     const [actionStr, setActionStr] = useState('')
 
@@ -782,13 +780,10 @@ export function PopupCard(props: IPopupCardProps) {
         if (!props.defaultShowSettings) {
             return
         }
-        ;(async () => {
-            const settings = await getSettings()
-            if (!settings.apiKeys) {
-                setShowSettings(true)
-            }
-        })()
-    }, [props.defaultShowSettings])
+        if (settings && !settings.apiKeys) {
+            setShowSettings(true)
+        }
+    }, [props.defaultShowSettings, settings])
 
     const [isOCRProcessing, setIsOCRProcessing] = useState(false)
     const [showOCRProcessing, setShowOCRProcessing] = useState(false)
@@ -908,7 +903,7 @@ export function PopupCard(props: IPopupCardProps) {
                             'yetone-dark': themeType === 'dark',
                         })}
                         style={{
-                            background: themeType === 'dark' ? '#1f1f1f' : '#fff',
+                            background: theme.colors.backgroundPrimary,
                             paddingBottom: showSettings ? '0px' : '30px',
                         }}
                     >
@@ -918,6 +913,7 @@ export function PopupCard(props: IPopupCardProps) {
                                     setShowSettings(false)
                                     props.onSettingsSave?.(oldSettings)
                                 }}
+                                engine={props.engine}
                             />
                         ) : (
                             <div style={props.containerStyle}>
@@ -1075,6 +1071,9 @@ export function PopupCard(props: IPopupCardProps) {
                                     </div>
                                 </div>
                                 <div className={styles.popupCardContentContainer}>
+                                    <div>
+                                        <IpLocationNotification />
+                                    </div>
                                     <div ref={editorContainerRef} className={styles.popupCardEditorContainer}>
                                         <div
                                             style={{
@@ -1266,6 +1265,19 @@ export function PopupCard(props: IPopupCardProps) {
                                                             <RxCopy size={13} />
                                                         </div>
                                                     </CopyToClipboard>
+                                                </div>
+                                            </StatefulTooltip>
+                                            <StatefulTooltip content={t('Clear input')} showArrow placement='left'>
+                                                <div
+                                                    className={styles.actionButton}
+                                                    onClick={() => {
+                                                        setEditableText('')
+                                                        editorRef.current?.focus()
+                                                    }}
+                                                >
+                                                    <div className={styles.actionButton}>
+                                                        <RxEraser size={13} />
+                                                    </div>
                                                 </div>
                                             </StatefulTooltip>
                                         </div>
