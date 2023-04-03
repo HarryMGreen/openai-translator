@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import _ from 'underscore'
 import icon from './assets/images/icon.png'
 import beams from './assets/images/beams.jpg'
@@ -25,6 +25,9 @@ import { IoCloseCircle } from 'react-icons/io5'
 import { useTranslation } from 'react-i18next'
 import AppConfig from '../../package.json'
 import { useSettings } from '../common/hooks/useSettings'
+import { langCode2TTSLang } from '../common/tts'
+import { RiDeleteBin5Line } from 'react-icons/ri'
+import { IoMdAdd } from 'react-icons/io'
 
 const langOptions: Value = supportLanguages.reduce((acc, [id, label]) => {
     return [
@@ -168,6 +171,202 @@ function ThemeTypeSelector(props: IThemeTypeSelectorProps) {
     )
 }
 
+const useTTSSettingsStyles = createUseStyles({
+    settingsLabel: (props: IThemedStyleProps) => ({
+        color: props.theme.colors.contentPrimary,
+        display: 'block',
+        marignTop: '4px',
+        marginBottom: '4px',
+    }),
+    voiceSelector: {
+        display: 'flex',
+        alignItems: 'center',
+        gap: '6px',
+        marginTop: '10px',
+    },
+})
+
+interface TTSVoicesSettingsProps {
+    value?: ISettings['ttsVoices']
+    onChange?: (value: ISettings['ttsVoices']) => void
+    onBlur?: () => void
+}
+
+function TTSVoicesSettings(props: TTSVoicesSettingsProps) {
+    const { theme, themeType } = useTheme()
+
+    const styles = useTTSSettingsStyles({ theme, themeType, isDesktopApp: utils.isDesktopApp() })
+
+    const [showLangSelector, setShowLangSelector] = useState(false)
+
+    const supportVoices = window.speechSynthesis?.getVoices() ?? []
+
+    const getLangOptions = useCallback(
+        (lang: string) => {
+            return supportLanguages.reduce((acc, [langCode, label]) => {
+                const ttsLang = langCode2TTSLang[langCode]
+                if (ttsLang && supportVoices.find((v) => v.lang === ttsLang)) {
+                    if (props.value?.find((item) => item.lang === langCode) && langCode !== lang) {
+                        return acc
+                    }
+                    return [
+                        ...acc,
+                        {
+                            id: langCode,
+                            label,
+                        } as Option,
+                    ]
+                }
+                return acc
+            }, [] as Value)
+        },
+        [props.value]
+    )
+
+    const getVoiceOptions = useCallback(
+        (lang: string) => {
+            const ttsLang = langCode2TTSLang[lang]
+            return supportVoices
+                .filter((v) => v.lang === ttsLang)
+                .map((sv) => ({ id: sv.voiceURI, label: sv.name, lang: sv.lang }))
+        },
+        [props.value]
+    )
+
+    const handleDeleteLang = useCallback(
+        (lang: string) => {
+            const voices = props.value ?? []
+            const newVoices = voices.filter((item) => {
+                return item.lang !== lang
+            })
+            props.onChange?.(newVoices)
+        },
+        [props.value]
+    )
+
+    const handleChangeLang = useCallback(
+        (prevLang: string, newLang: string) => {
+            const voices = props.value ?? []
+            const newVoices = voices.map((item) => {
+                if (item.lang === prevLang) {
+                    return {
+                        ...item,
+                        lang: newLang,
+                    }
+                }
+                return item
+            })
+            props.onChange?.(newVoices)
+        },
+        [props.value]
+    )
+
+    const handleAddLang = useCallback(
+        (lang: string) => {
+            const voices = props.value ?? []
+            props.onChange?.([
+                ...voices,
+                {
+                    lang,
+                    voice: '',
+                },
+            ])
+            setShowLangSelector(false)
+        },
+        [props.value]
+    )
+
+    const handleChangeVoice = useCallback(
+        (lang: string, voice: string) => {
+            const voices = props.value ?? []
+            const newVoices = voices.map((item) => {
+                if (item.lang === lang) {
+                    return {
+                        ...item,
+                        voice,
+                    }
+                }
+                return item
+            })
+            props.onChange?.(newVoices)
+        },
+        [props.value]
+    )
+
+    return (
+        <div>
+            <div>
+                <label className={styles.settingsLabel}>Voice</label>
+                {(props.value ?? []).map(({ lang, voice }) => (
+                    <div className={styles.voiceSelector} key={lang}>
+                        <Select
+                            size='compact'
+                            clearable={false}
+                            options={getLangOptions(lang)}
+                            onChange={({ option }) => handleChangeLang(lang, option?.id as string)}
+                            value={[{ id: lang }]}
+                        />
+                        <Select
+                            size='compact'
+                            options={getVoiceOptions(lang)}
+                            value={[{ id: voice }]}
+                            onChange={({ option }) => handleChangeVoice(lang, option?.id as string)}
+                            clearable={false}
+                            onBlur={props.onBlur}
+                        />
+                        <Button
+                            shape='circle'
+                            size='mini'
+                            overrides={{
+                                Root: {
+                                    style: {
+                                        flexShrink: 0,
+                                    },
+                                },
+                            }}
+                            onClick={(e) => {
+                                e.preventDefault()
+                                e.stopPropagation()
+                                handleDeleteLang(lang)
+                            }}
+                        >
+                            <RiDeleteBin5Line />
+                        </Button>
+                    </div>
+                ))}
+                <div
+                    style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 10,
+                        marginTop: 10,
+                    }}
+                >
+                    {showLangSelector && (
+                        <Select
+                            size='mini'
+                            clearable={false}
+                            options={getLangOptions('')}
+                            onChange={({ option }) => handleAddLang(option?.id as string)}
+                        />
+                    )}
+                    <Button
+                        size='mini'
+                        startEnhancer={() => <IoMdAdd size={12} />}
+                        onClick={(e) => {
+                            e.preventDefault()
+                            e.stopPropagation()
+                            setShowLangSelector(true)
+                        }}
+                    >
+                        Add
+                    </Button>
+                </div>
+            </div>
+        </div>
+    )
+}
+
 interface Ii18nSelectorProps {
     value?: string
     onChange?: (value: string) => void
@@ -276,6 +475,24 @@ interface RestorePreviousPositionCheckboxProps {
 }
 
 function RestorePreviousPositionCheckbox(props: RestorePreviousPositionCheckboxProps) {
+    return (
+        <Checkbox
+            checkmarkType='toggle_round'
+            checked={props.value}
+            onChange={(e) => {
+                props.onChange?.(e.target.checked)
+                props.onBlur?.()
+            }}
+        />
+    )
+}
+interface RunAtStartupCheckboxProps {
+    value?: boolean
+    onChange?: (value: boolean) => void
+    onBlur?: () => void
+}
+
+function RunAtStartupCheckbox(props: RunAtStartupCheckboxProps) {
     return (
         <Checkbox
             checkmarkType='toggle_round'
@@ -477,6 +694,7 @@ export function Settings(props: IPopupProps) {
         hotkey: '',
         i18n: utils.defaulti18n,
         restorePreviousPosition: false,
+        runAtStartup: false,
     })
     const [prevValues, setPrevValues] = useState<ISettings>(values)
 
@@ -487,22 +705,46 @@ export function Settings(props: IPopupProps) {
     }, [form, values])
 
     const { settings, setSettings } = useSettings()
+    const isTauri = utils.isTauri()
 
     useEffect(() => {
         if (settings) {
-            setValues(settings)
-            setPrevValues(settings)
+            ;(async () => {
+                if (isTauri) {
+                    const { isEnabled: autostartIsEnabled } = await require('tauri-plugin-autostart-api')
+                    settings.runAtStartup = await autostartIsEnabled()
+                }
+                setValues(settings)
+                setPrevValues(settings)
+            })()
         }
     }, [settings])
 
     const onChange = useCallback((_changes: Partial<ISettings>, values_: ISettings) => {
         setValues(values_)
     }, [])
-
     const onSubmit = useCallback(async (data: ISettings) => {
         setLoading(true)
         const oldSettings = await utils.getSettings()
+        if (isTauri) {
+            try {
+                const {
+                    enable: autostartEnable,
+                    disable: autostartDisable,
+                    isEnabled: autostartIsEnabled,
+                } = await require('tauri-plugin-autostart-api')
+                if (data.runAtStartup) {
+                    await autostartEnable()
+                } else {
+                    await autostartDisable()
+                }
+                data.runAtStartup = await autostartIsEnabled()
+            } catch (e) {
+                console.log('err', e)
+            }
+        }
         await utils.setSettings(data)
+
         toast(t('Saved'), {
             icon: '👍',
             duration: 3000,
@@ -614,9 +856,11 @@ export function Settings(props: IPopupProps) {
                         >
                             <Input autoFocus type='password' size='compact' onBlur={onBlur} />
                         </FormItem>
-                        <FormItem name='apiModel' label={t('API Model')}>
-                            <APIModelSelector onBlur={onBlur} />
-                        </FormItem>
+                        {values.provider !== 'Azure' && (
+                            <FormItem name='apiModel' label={t('API Model')}>
+                                <APIModelSelector onBlur={onBlur} />
+                            </FormItem>
+                        )}
                         <FormItem required name='apiURL' label={t('API URL')}>
                             <Input size='compact' onBlur={onBlur} />
                         </FormItem>
@@ -635,6 +879,11 @@ export function Settings(props: IPopupProps) {
                         <FormItem name='restorePreviousPosition' label={t('Restore Previous Position')}>
                             <RestorePreviousPositionCheckbox onBlur={onBlur} />
                         </FormItem>
+                        {isTauri && (
+                            <FormItem name='runAtStartup' label={t('Run at Startup')}>
+                                <RunAtStartupCheckbox onBlur={onBlur} />
+                            </FormItem>
+                        )}
                         <FormItem name='defaultTargetLanguage' label={t('Default Target Language')}>
                             <LanguageSelector onBlur={onBlur} />
                         </FormItem>
@@ -643,6 +892,9 @@ export function Settings(props: IPopupProps) {
                         </FormItem>
                         <FormItem name='i18n' label={t('i18n')}>
                             <Ii18nSelector onBlur={onBlur} />
+                        </FormItem>
+                        <FormItem name='ttsVoices' label={t('TTS')}>
+                            <TTSVoicesSettings onBlur={onBlur} />
                         </FormItem>
                         <FormItem name='hotkey' label={t('Hotkey')}>
                             <HotkeyRecorder onBlur={onBlur} />

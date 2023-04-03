@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useReducer, useRef, useState } from 'react'
-import { useTranslation } from 'react-i18next'
+import { useTranslation, Trans } from 'react-i18next'
 import toast, { Toaster } from 'react-hot-toast'
 import { Client as Styletron } from 'styletron-engine-atomic'
 import { Provider as StyletronProvider } from 'styletron-react'
@@ -7,10 +7,10 @@ import { BaseProvider, Theme } from 'baseui-sd'
 import { Textarea } from 'baseui-sd/textarea'
 import icon from './assets/images/icon.png'
 import { createUseStyles } from 'react-jss'
-import { AiOutlineTranslation } from 'react-icons/ai'
+import { AiOutlineTranslation, AiOutlineFileSync } from 'react-icons/ai'
 import { IoSettingsOutline, IoColorPaletteOutline } from 'react-icons/io5'
-import { TbArrowsExchange } from 'react-icons/tb'
-import { MdOutlineSummarize, MdOutlineAnalytics, MdCode } from 'react-icons/md'
+import { TbArrowsExchange, TbCsv } from 'react-icons/tb'
+import { MdOutlineSummarize, MdOutlineAnalytics, MdCode, MdOutlineGrade, MdGrade } from 'react-icons/md'
 import { StatefulTooltip } from 'baseui-sd/tooltip'
 import { detectLang, supportLanguages } from './lang'
 import { translate, TranslateMode } from './translate'
@@ -22,12 +22,13 @@ import { clsx } from 'clsx'
 import { Button } from 'baseui-sd/button'
 import { ErrorBoundary } from 'react-error-boundary'
 import { ErrorFallback } from '../components/ErrorFallback'
-import { isDesktopApp, isTauri } from '../common/utils'
+import { defaultAPIURL, exportToCsv, isDesktopApp, isTauri } from '../common/utils'
 import { Settings } from '../popup/Settings'
 import { documentPadding } from './consts'
 import Dropzone from 'react-dropzone'
 import { RecognizeResult, createWorker } from 'tesseract.js'
 import { BsTextareaT } from 'react-icons/bs'
+import { FcIdea } from 'react-icons/fc'
 import rocket from './assets/images/rocket.gif'
 import partyPopper from './assets/images/party-popper.gif'
 import { Event } from '@tauri-apps/api/event'
@@ -38,7 +39,12 @@ import LRUCache from 'lru-cache'
 import { ISettings, IThemedStyleProps } from '../common/types'
 import { useTheme } from '../common/hooks/useTheme'
 import { speak } from '../common/tts'
+import { Tooltip } from '../components/Tooltip'
 import { useSettings } from '../common/hooks/useSettings'
+import Vocabulary from './Vocabulary'
+import { LocalDB, VocabularyItem } from '../common/db'
+import { useCollectedWordTotal } from '../common/hooks/useCollectedWordTotal'
+import { Modal } from 'baseui-sd/modal'
 
 const cache = new LRUCache({
     max: 500,
@@ -69,11 +75,11 @@ const useStyles = createUseStyles({
                   color: props.theme.colors.contentSecondary,
                   position: 'fixed',
                   width: '100%',
-                  height: '32px',
+                  height: '42px',
                   cursor: 'pointer',
                   left: '0',
                   bottom: '0',
-                  paddingLeft: '10px',
+                  paddingLeft: '16px',
                   display: 'flex',
                   alignItems: 'center',
                   background: props.theme.colors.backgroundPrimary,
@@ -82,8 +88,8 @@ const useStyles = createUseStyles({
                   color: props.theme.colors.contentSecondary,
                   position: 'absolute',
                   cursor: 'pointer',
-                  bottom: '10px',
-                  left: '10px',
+                  bottom: '16px',
+                  left: '16px',
                   lineHeight: '1',
               },
     'popupCardHeaderContainer': (props: IThemedStyleProps) =>
@@ -96,7 +102,7 @@ const useStyles = createUseStyles({
                   'top': 0,
                   'width': '100%',
                   'boxSizing': 'border-box',
-                  'padding': '30px  10px 5px',
+                  'padding': '30px 16px 8px',
                   'background': props.themeType === 'dark' ? 'rgba(31, 31, 31, 0.5)' : 'rgba(255, 255, 255, 0.5)',
                   'display': 'flex',
                   'flexDirection': 'row',
@@ -113,7 +119,7 @@ const useStyles = createUseStyles({
                   'flexDirection': 'row',
                   'cursor': 'move',
                   'alignItems': 'center',
-                  'padding': '5px 10px',
+                  'padding': '8px 16px',
                   'borderBottom': `1px solid ${props.theme.colors.borderTransparent}`,
                   'minWidth': '580px',
                   '-ms-user-select': 'none',
@@ -204,12 +210,12 @@ const useStyles = createUseStyles({
     'popupCardEditorContainer': {
         display: 'flex',
         flexDirection: 'column',
-        padding: '10px',
+        padding: '16px',
     },
     'popupCardTranslatedContainer': (props: IThemedStyleProps) => ({
         'position': 'relative',
         'display': 'flex',
-        'padding': '16px 10px 10px 10px',
+        'padding': '26px 16px 16px 16px',
         'border-top': `1px solid ${props.theme.colors.borderTransparent}`,
         '-ms-user-select': 'none',
         '-webkit-user-select': 'none',
@@ -245,7 +251,6 @@ const useStyles = createUseStyles({
     },
     'popupCardTranslatedContentContainer': (props: IThemedStyleProps) => ({
         marginTop: '-14px',
-        padding: '4px 8px',
         display: 'flex',
         overflowY: 'auto',
         color: props.themeType === 'dark' ? props.theme.colors.contentSecondary : props.theme.colors.contentPrimary,
@@ -261,11 +266,17 @@ const useStyles = createUseStyles({
         flexDirection: 'row',
         alignItems: 'center',
         gap: '12px',
-        marginTop: '10px',
     },
     'actionButton': (props: IThemedStyleProps) => ({
         color: props.theme.colors.contentSecondary,
         cursor: 'pointer',
+        display: 'flex',
+        paddingTop: '6px',
+        paddingBottom: '6px',
+    }),
+    'actionButtonDisabled': (props: IThemedStyleProps) => ({
+        color: props.theme.colors.buttonDisabledText,
+        cursor: 'default',
         display: 'flex',
         paddingTop: '6px',
         paddingBottom: '6px',
@@ -313,6 +324,17 @@ const useStyles = createUseStyles({
     'OCRStatusBar': (props: IThemedStyleProps) => ({
         color: props.theme.colors.contentSecondary,
     }),
+    'vocabulary': {
+        position: 'fixed',
+        width: '100%',
+        height: '100%',
+        top: 0,
+        left: 0,
+        display: 'flex',
+        justifyContent: 'center',
+        alignItems: 'center',
+        background: 'rgba(0,0,0,0.3)',
+    },
 })
 
 interface IActionStrItem {
@@ -340,6 +362,10 @@ const actionStrItems: Record<TranslateMode, IActionStrItem> = {
     'explain-code': {
         beforeStr: 'Explaining...',
         afterStr: 'Explained',
+    },
+    'big-bang': {
+        beforeStr: 'Writing...',
+        afterStr: 'Written',
     },
 }
 
@@ -369,9 +395,9 @@ export function PopupCard(props: IPopupCardProps) {
     const editorRef = useRef<HTMLTextAreaElement>(null)
     const isCompositing = useRef(false)
     const [selectedWord, setSelectedWord] = useState('')
-
+    const [vocabularyType, setVocabularyType] = useState<'hide' | 'vocabulary' | 'article'>('hide')
     const highlightRef = useRef<HighlightInTextarea | null>(null)
-
+    const [showWordbookButtons, setShowWordbookButtons] = useState(false)
     const { t, i18n } = useTranslation()
     const { settings } = useSettings()
     useEffect(() => {
@@ -400,20 +426,23 @@ export function PopupCard(props: IPopupCardProps) {
         }
         highlightRef.current = new HighlightInTextarea(editor, { highlight: '' })
         if (props.autoFocus) {
-            setAutoFocus(false)
-            setTimeout(() => {
-                setAutoFocus(true)
-            }, 500)
+            editor.focus()
         }
     }, [props.autoFocus])
+
+    const [highlightWords, setHighlightWords] = useState<string[]>([])
 
     useEffect(() => {
         if (!highlightRef.current?.highlight) {
             return
         }
-        highlightRef.current.highlight.highlight = selectedWord
+        if (selectedWord) {
+            highlightRef.current.highlight.highlight = [selectedWord]
+        } else {
+            highlightRef.current.highlight.highlight = [...highlightWords]
+        }
         highlightRef.current.handleInput()
-    }, [selectedWord])
+    }, [selectedWord, highlightWords])
 
     const [translateMode, setTranslateMode] = useState<TranslateMode | ''>('')
     useEffect(() => {
@@ -438,13 +467,15 @@ export function PopupCard(props: IPopupCardProps) {
             isCompositing.current = false
         }
         const onMouseUp = () => {
+            if (editor.selectionStart === 0 && editor.selectionEnd === editor.value.length) {
+                setSelectedWord('')
+                return
+            }
             const selectedWord_ = editor.value.substring(editor.selectionStart, editor.selectionEnd).trim()
             setSelectedWord(selectedWord_)
+            setHighlightWords([])
         }
-        const onBlur = () => {
-            const selectedWord_ = editor.value.substring(editor.selectionStart, editor.selectionEnd).trim()
-            setSelectedWord(selectedWord_)
-        }
+        const onBlur = onMouseUp
 
         editor.addEventListener('compositionstart', onCompositionStart)
         editor.addEventListener('compositionend', onCompositionEnd)
@@ -468,6 +499,29 @@ export function PopupCard(props: IPopupCardProps) {
     const [originalText, setOriginalText] = useState(props.text)
     const [translatedText, setTranslatedText] = useState('')
     const [translatedLines, setTranslatedLines] = useState<string[]>([])
+    const [isWordMode, setIsWordMode] = useState(false)
+    const [isCollectedWord, setIsCollectedWord] = useState(false)
+    const checkWordCollection = useCallback(async () => {
+        try {
+            const arr = await LocalDB.vocabulary.where('word').equals(editableText.trim()).toArray()
+            if (arr.length > 0) {
+                await LocalDB.vocabulary.put({
+                    ...arr[0],
+                    reviewCount: arr[0].reviewCount + 1,
+                })
+                setIsCollectedWord(true)
+            } else {
+                setIsCollectedWord(false)
+            }
+        } catch (e) {
+            console.error(e)
+        }
+    }, [editableText])
+    useEffect(() => {
+        if (isWordMode && !isLoading) {
+            checkWordCollection()
+        }
+    }, [isWordMode, editableText, isLoading])
     useEffect(() => {
         setTranslatedLines(translatedText.split('\n'))
     }, [translatedText])
@@ -523,6 +577,8 @@ export function PopupCard(props: IPopupCardProps) {
     const actionButtonsRef = useRef<HTMLDivElement>(null)
 
     const scrollYRef = useRef<number>(0)
+
+    const { collectedWordTotal, setCollectedWordTotal } = useCollectedWordTotal()
 
     // Reposition the popup card to prevent it from extending beyond the screen.
     useEffect(() => {
@@ -608,23 +664,22 @@ export function PopupCard(props: IPopupCardProps) {
         }
 
         const overflowCheck = ($popupCard: HTMLDivElement, movementXY: MovementXY): number[] => {
-            let left = $popupCard.offsetLeft
-            let top = $popupCard.offsetTop
+            let { offsetTop: cardTop, offsetLeft: cardLeft } = $popupCard
+            const rect = $popupCard.getBoundingClientRect()
             const { x: movementX, y: movementY } = movementXY
             if (
-                $popupCard.offsetLeft + movementX > documentPadding &&
-                window.innerWidth - $popupCard.offsetLeft - movementX - $popupCard.offsetWidth > documentPadding
+                rect.left + movementX > documentPadding &&
+                rect.right + movementX < document.documentElement.clientWidth - documentPadding
             ) {
-                left = $popupCard.offsetLeft + movementX
+                cardLeft = $popupCard.offsetLeft + movementX
             }
             if (
-                $popupCard.offsetTop + movementY > documentPadding &&
-                document.documentElement.offsetHeight - $popupCard.offsetTop - movementY - $popupCard.offsetHeight >
-                    documentPadding
+                rect.top + movementY > documentPadding &&
+                rect.bottom + movementY < document.documentElement.clientHeight - documentPadding
             ) {
-                top = $popupCard.offsetTop + movementY
+                cardTop = $popupCard.offsetTop + movementY
             }
-            return [left, top]
+            return [cardLeft, cardTop]
         }
 
         const elementScroll = async (e: globalThis.Event) => {
@@ -664,6 +719,7 @@ export function PopupCard(props: IPopupCardProps) {
 
     const translateText = useCallback(
         async (text: string, selectedWord: string, signal: AbortSignal) => {
+            setShowWordbookButtons(false)
             if (!text || !detectFrom || !detectTo || !translateMode) {
                 return
             }
@@ -719,6 +775,7 @@ export function PopupCard(props: IPopupCardProps) {
                         if (message.role) {
                             return
                         }
+                        setIsWordMode(message.isWordMode)
                         setTranslatedText((translatedText) => {
                             return translatedText + message.content
                         })
@@ -732,6 +789,9 @@ export function PopupCard(props: IPopupCardProps) {
                                 ['”', '"', '」'].indexOf(translatedText[translatedText.length - 1]) >= 0
                             ) {
                                 result = translatedText.slice(0, -1)
+                            }
+                            if (result && ['“', '"', '「'].indexOf(result[0]) >= 0) {
+                                result = result.slice(1)
                             }
                             cache.set(cachedKey, result)
                             return result
@@ -894,6 +954,80 @@ export function PopupCard(props: IPopupCardProps) {
         await (await worker).terminate()
     }
 
+    const onWordCollection = async () => {
+        try {
+            if (isCollectedWord) {
+                const wordInfo = await LocalDB.vocabulary.get(editableText)
+                await LocalDB.vocabulary.delete(wordInfo?.word ?? '')
+                setIsCollectedWord(false)
+                setCollectedWordTotal((t) => t - 1)
+            } else {
+                await LocalDB.vocabulary.put({
+                    word: editableText,
+                    reviewCount: 1,
+                    description: translatedText.slice(editableText.length + 1), // separate string after first '\n'
+                    updatedAt: new Date().valueOf().toString(),
+                    createdAt: new Date().valueOf().toString(),
+                })
+                setIsCollectedWord(true)
+                setCollectedWordTotal((t) => t + 1)
+            }
+        } catch (e) {
+            console.error(e)
+        }
+    }
+
+    const onCsvExport = async () => {
+        try {
+            const words = await LocalDB.vocabulary.toArray()
+            await exportToCsv<VocabularyItem>(`openai-translator-collection-${new Date().valueOf()}`, words)
+            if (isDesktopApp()) {
+                toast(t('csv file saved on Desktop'), {
+                    duration: 5000,
+                    icon: '👏',
+                })
+            }
+        } catch (e) {
+            console.error(e)
+        }
+    }
+
+    const handleEditSpeakAction = () => {
+        if (typeof window.speechSynthesis === 'undefined') {
+            return
+        }
+
+        if (isSpeakingEditableText) {
+            speechSynthesis.cancel()
+            setIsSpeakingEditableText(false)
+            return
+        }
+        setIsSpeakingEditableText(true)
+        speak({
+            text: editableText,
+            lang: detectFrom,
+            onFinish: handleSpeakDone,
+        })
+    }
+
+    const handleTranslatedSpeakAction = () => {
+        if (typeof window.speechSynthesis === 'undefined') {
+            return
+        }
+
+        if (isSpeakingTranslatedText) {
+            speechSynthesis.cancel()
+            setIsSpeakingTranslatedText(false)
+            return
+        }
+        setIsSpeakingTranslatedText(true)
+        speak({
+            text: translatedText,
+            lang: detectTo,
+            onFinish: handleSpeakDone,
+        })
+    }
+
     return (
         <ErrorBoundary FallbackComponent={ErrorFallback}>
             <StyletronProvider value={props.engine}>
@@ -903,6 +1037,7 @@ export function PopupCard(props: IPopupCardProps) {
                             'yetone-dark': themeType === 'dark',
                         })}
                         style={{
+                            minHeight: vocabularyType !== 'hide' ? '600px' : undefined,
                             background: theme.colors.backgroundPrimary,
                             paddingBottom: showSettings ? '0px' : '30px',
                         }}
@@ -963,11 +1098,11 @@ export function PopupCard(props: IPopupCardProps) {
                                                 setDetectTo(detectFrom)
                                             }}
                                         >
-                                            <StatefulTooltip content='Exchange' placement='top' showArrow>
+                                            <Tooltip content='Exchange' placement='top'>
                                                 <div>
                                                     <TbArrowsExchange />
                                                 </div>
-                                            </StatefulTooltip>
+                                            </Tooltip>
                                         </div>
                                         <div className={styles.to}>
                                             <Select
@@ -995,11 +1130,7 @@ export function PopupCard(props: IPopupCardProps) {
                                         </div>
                                     </div>
                                     <div className={styles.popupCardHeaderButtonGroup}>
-                                        <StatefulTooltip
-                                            content={t('Translate')}
-                                            placement={isDesktopApp() ? 'bottom' : 'top'}
-                                            showArrow
-                                        >
+                                        <Tooltip content={t('Translate')} placement={isDesktopApp() ? 'bottom' : 'top'}>
                                             <Button
                                                 size='mini'
                                                 kind={translateMode === 'translate' ? 'primary' : 'secondary'}
@@ -1007,12 +1138,8 @@ export function PopupCard(props: IPopupCardProps) {
                                             >
                                                 <AiOutlineTranslation />
                                             </Button>
-                                        </StatefulTooltip>
-                                        <StatefulTooltip
-                                            content={t('Polishing')}
-                                            placement={isDesktopApp() ? 'bottom' : 'top'}
-                                            showArrow
-                                        >
+                                        </Tooltip>
+                                        <Tooltip content={t('Polishing')} placement={isDesktopApp() ? 'bottom' : 'top'}>
                                             <Button
                                                 size='mini'
                                                 kind={translateMode === 'polishing' ? 'primary' : 'secondary'}
@@ -1023,12 +1150,8 @@ export function PopupCard(props: IPopupCardProps) {
                                             >
                                                 <IoColorPaletteOutline />
                                             </Button>
-                                        </StatefulTooltip>
-                                        <StatefulTooltip
-                                            content={t('Summarize')}
-                                            placement={isDesktopApp() ? 'bottom' : 'top'}
-                                            showArrow
-                                        >
+                                        </Tooltip>
+                                        <Tooltip content={t('Summarize')} placement={isDesktopApp() ? 'bottom' : 'top'}>
                                             <Button
                                                 size='mini'
                                                 kind={translateMode === 'summarize' ? 'primary' : 'secondary'}
@@ -1038,12 +1161,8 @@ export function PopupCard(props: IPopupCardProps) {
                                             >
                                                 <MdOutlineSummarize />
                                             </Button>
-                                        </StatefulTooltip>
-                                        <StatefulTooltip
-                                            content={t('Analyze')}
-                                            placement={isDesktopApp() ? 'bottom' : 'top'}
-                                            showArrow
-                                        >
+                                        </Tooltip>
+                                        <Tooltip content={t('Analyze')} placement={isDesktopApp() ? 'bottom' : 'top'}>
                                             <Button
                                                 size='mini'
                                                 kind={translateMode === 'analyze' ? 'primary' : 'secondary'}
@@ -1051,11 +1170,10 @@ export function PopupCard(props: IPopupCardProps) {
                                             >
                                                 <MdOutlineAnalytics />
                                             </Button>
-                                        </StatefulTooltip>
-                                        <StatefulTooltip
+                                        </Tooltip>
+                                        <Tooltip
                                             content={t('Explain Code')}
-                                            placement={isDesktopApp() ? 'left' : 'top'}
-                                            showArrow
+                                            placement={isDesktopApp() ? 'bottom' : 'top'}
                                         >
                                             <Button
                                                 size='mini'
@@ -1067,13 +1185,15 @@ export function PopupCard(props: IPopupCardProps) {
                                             >
                                                 <MdCode />
                                             </Button>
-                                        </StatefulTooltip>
+                                        </Tooltip>
                                     </div>
                                 </div>
                                 <div className={styles.popupCardContentContainer}>
-                                    <div>
-                                        <IpLocationNotification />
-                                    </div>
+                                    {settings?.apiURL === defaultAPIURL && (
+                                        <div>
+                                            <IpLocationNotification />
+                                        </div>
+                                    )}
                                     <div ref={editorContainerRef} className={styles.popupCardEditorContainer}>
                                         <div
                                             style={{
@@ -1204,82 +1324,132 @@ export function PopupCard(props: IPopupCardProps) {
                                             )}
                                         </Dropzone>
                                         <div className={styles.actionButtonsContainer}>
-                                            <div style={{ marginRight: 'auto' }} />
-                                            <StatefulTooltip
-                                                content={t('Upload an image for OCR translation')}
-                                                showArrow
-                                                placement='left'
-                                            >
-                                                <div className={styles.actionButton}>
-                                                    <Dropzone onDrop={onDrop}>
-                                                        {({ getRootProps, getInputProps }) => (
-                                                            <div {...getRootProps()} className={styles.actionButton}>
-                                                                <input {...getInputProps({ multiple: false })} />
-                                                                <BsTextareaT size={13} />
-                                                            </div>
-                                                        )}
-                                                    </Dropzone>
-                                                </div>
-                                            </StatefulTooltip>
-                                            <StatefulTooltip content={t('Speak')} showArrow placement='left'>
-                                                <div
-                                                    className={styles.actionButton}
-                                                    onClick={() => {
-                                                        if (isSpeakingEditableText) {
-                                                            speechSynthesis.cancel()
-                                                            setIsSpeakingEditableText(false)
-                                                            return
-                                                        }
-                                                        setIsSpeakingEditableText(true)
-                                                        speak({
-                                                            text: editableText,
-                                                            lang: detectFrom,
-                                                            onFinish: handleSpeakDone,
-                                                        })
-                                                    }}
-                                                >
-                                                    {isSpeakingEditableText ? (
-                                                        <SpeakerMotion />
-                                                    ) : (
-                                                        <RxSpeakerLoud size={13} />
-                                                    )}
-                                                </div>
-                                            </StatefulTooltip>
-                                            <StatefulTooltip
-                                                content={t('Copy to clipboard')}
-                                                showArrow
-                                                placement='left'
-                                            >
-                                                <div>
-                                                    <CopyToClipboard
-                                                        text={editableText}
-                                                        onCopy={() => {
-                                                            toast(t('Copy to clipboard'), {
-                                                                duration: 3000,
-                                                                icon: '👏',
-                                                            })
-                                                        }}
-                                                        options={{ format: 'text/plain' }}
-                                                    >
-                                                        <div className={styles.actionButton}>
-                                                            <RxCopy size={13} />
-                                                        </div>
-                                                    </CopyToClipboard>
-                                                </div>
-                                            </StatefulTooltip>
-                                            <StatefulTooltip content={t('Clear input')} showArrow placement='left'>
-                                                <div
-                                                    className={styles.actionButton}
-                                                    onClick={() => {
-                                                        setEditableText('')
-                                                        editorRef.current?.focus()
-                                                    }}
+                                            <>
+                                                <Tooltip
+                                                    content={t('Upload an image for OCR translation')}
+                                                    placement='bottom'
                                                 >
                                                     <div className={styles.actionButton}>
-                                                        <RxEraser size={13} />
+                                                        <Dropzone onDrop={onDrop}>
+                                                            {({ getRootProps, getInputProps }) => (
+                                                                <div
+                                                                    {...getRootProps()}
+                                                                    className={styles.actionButton}
+                                                                >
+                                                                    <input {...getInputProps({ multiple: false })} />
+                                                                    <BsTextareaT size={13} />
+                                                                </div>
+                                                            )}
+                                                        </Dropzone>
                                                     </div>
-                                                </div>
-                                            </StatefulTooltip>
+                                                </Tooltip>
+                                                {collectedWordTotal > 0 && (
+                                                    <StatefulTooltip
+                                                        content={
+                                                            <Trans
+                                                                i18nKey='words are collected'
+                                                                values={{
+                                                                    collectTotal: collectedWordTotal,
+                                                                }}
+                                                            />
+                                                        }
+                                                        showArrow
+                                                        placement='top'
+                                                    >
+                                                        <div
+                                                            className={styles.actionButton}
+                                                            onClick={() => setShowWordbookButtons((e) => !e)}
+                                                        >
+                                                            <AiOutlineFileSync size={13} />
+                                                        </div>
+                                                    </StatefulTooltip>
+                                                )}
+                                                {showWordbookButtons && collectedWordTotal > 0 && (
+                                                    <>
+                                                        <StatefulTooltip
+                                                            content={t('Collection Review')}
+                                                            showArrow
+                                                            placement='top'
+                                                        >
+                                                            <div className={styles.actionButton}>
+                                                                <MdGrade
+                                                                    size={13}
+                                                                    onClick={() => setVocabularyType('vocabulary')}
+                                                                />
+                                                            </div>
+                                                        </StatefulTooltip>
+                                                        <StatefulTooltip
+                                                            content={t('Export your collection as a csv file')}
+                                                            showArrow
+                                                            placement='top'
+                                                        >
+                                                            <div className={styles.actionButton} onClick={onCsvExport}>
+                                                                <TbCsv size={13} />
+                                                            </div>
+                                                        </StatefulTooltip>
+                                                        <StatefulTooltip content='Big Bang' showArrow placement='top'>
+                                                            <div className={styles.actionButton}>
+                                                                <FcIdea
+                                                                    size={13}
+                                                                    onClick={() => setVocabularyType('article')}
+                                                                />
+                                                            </div>
+                                                        </StatefulTooltip>
+                                                    </>
+                                                )}
+                                            </>
+                                            <div style={{ marginLeft: 'auto' }}></div>
+                                            {!!editableText.length && (
+                                                <>
+                                                    <Tooltip content={t('Speak')} placement='bottom'>
+                                                        <div
+                                                            className={
+                                                                window.speechSynthesis
+                                                                    ? styles.actionButton
+                                                                    : styles.actionButtonDisabled
+                                                            }
+                                                            onClick={handleEditSpeakAction}
+                                                        >
+                                                            {isSpeakingEditableText ? (
+                                                                <SpeakerMotion />
+                                                            ) : (
+                                                                <RxSpeakerLoud size={13} />
+                                                            )}
+                                                        </div>
+                                                    </Tooltip>
+                                                    <Tooltip content={t('Copy to clipboard')} placement='bottom'>
+                                                        <div>
+                                                            <CopyToClipboard
+                                                                text={editableText}
+                                                                onCopy={() => {
+                                                                    toast(t('Copy to clipboard'), {
+                                                                        duration: 3000,
+                                                                        icon: '👏',
+                                                                    })
+                                                                }}
+                                                                options={{ format: 'text/plain' }}
+                                                            >
+                                                                <div className={styles.actionButton}>
+                                                                    <RxCopy size={13} />
+                                                                </div>
+                                                            </CopyToClipboard>
+                                                        </div>
+                                                    </Tooltip>
+                                                    <Tooltip content={t('Clear input')} placement='bottom'>
+                                                        <div
+                                                            className={styles.actionButton}
+                                                            onClick={() => {
+                                                                setEditableText('')
+                                                                editorRef.current?.focus()
+                                                            }}
+                                                        >
+                                                            <div className={styles.actionButton}>
+                                                                <RxEraser size={13} />
+                                                            </div>
+                                                        </div>
+                                                    </Tooltip>
+                                                </>
+                                            )}
                                         </div>
                                     </div>
                                     {originalText !== '' && (
@@ -1307,14 +1477,14 @@ export function PopupCard(props: IPopupCardProps) {
                                             {errorMessage ? (
                                                 <div className={styles.errorMessage}>
                                                     <span>{errorMessage}</span>
-                                                    <StatefulTooltip content={t('Retry')} showArrow placement='left'>
+                                                    <Tooltip content={t('Retry')} placement='bottom'>
                                                         <div
                                                             onClick={() => forceTranslate()}
                                                             className={styles.actionButton}
                                                         >
                                                             <RxReload size={13} />
                                                         </div>
-                                                    </StatefulTooltip>
+                                                    </Tooltip>
                                                 </div>
                                             ) : (
                                                 <div
@@ -1330,7 +1500,47 @@ export function PopupCard(props: IPopupCardProps) {
                                                             {translatedLines.map((line, i) => {
                                                                 return (
                                                                     <p className={styles.paragraph} key={`p-${i}`}>
-                                                                        {line}
+                                                                        {isWordMode && i == 0 ? (
+                                                                            <div
+                                                                                style={{
+                                                                                    display: 'flex',
+                                                                                    alignItems: 'center',
+                                                                                    gap: '5px',
+                                                                                }}
+                                                                            >
+                                                                                {line}
+                                                                                {!isLoading && (
+                                                                                    <StatefulTooltip
+                                                                                        content={
+                                                                                            isCollectedWord
+                                                                                                ? t(
+                                                                                                      'Remove from collection'
+                                                                                                  )
+                                                                                                : t('Add to collection')
+                                                                                        }
+                                                                                        showArrow
+                                                                                        placement='right'
+                                                                                    >
+                                                                                        <div
+                                                                                            className={
+                                                                                                styles.actionButton
+                                                                                            }
+                                                                                            onClick={onWordCollection}
+                                                                                        >
+                                                                                            {isCollectedWord ? (
+                                                                                                <MdGrade size={15} />
+                                                                                            ) : (
+                                                                                                <MdOutlineGrade
+                                                                                                    size={15}
+                                                                                                />
+                                                                                            )}
+                                                                                        </div>
+                                                                                    </StatefulTooltip>
+                                                                                )}
+                                                                            </div>
+                                                                        ) : (
+                                                                            line
+                                                                        )}
                                                                         {isLoading &&
                                                                             i === translatedLines.length - 1 && (
                                                                                 <span className={styles.caret} />
@@ -1346,26 +1556,14 @@ export function PopupCard(props: IPopupCardProps) {
                                                             className={styles.actionButtonsContainer}
                                                         >
                                                             <div style={{ marginRight: 'auto' }} />
-                                                            <StatefulTooltip
-                                                                content={t('Speak')}
-                                                                showArrow
-                                                                placement='left'
-                                                            >
+                                                            <Tooltip content={t('Speak')} placement='bottom'>
                                                                 <div
-                                                                    className={styles.actionButton}
-                                                                    onClick={() => {
-                                                                        if (isSpeakingTranslatedText) {
-                                                                            speechSynthesis.cancel()
-                                                                            setIsSpeakingTranslatedText(false)
-                                                                            return
-                                                                        }
-                                                                        setIsSpeakingTranslatedText(true)
-                                                                        speak({
-                                                                            text: translatedText,
-                                                                            lang: detectTo,
-                                                                            onFinish: handleSpeakDone,
-                                                                        })
-                                                                    }}
+                                                                    className={
+                                                                        window.speechSynthesis
+                                                                            ? styles.actionButton
+                                                                            : styles.actionButtonDisabled
+                                                                    }
+                                                                    onClick={handleTranslatedSpeakAction}
                                                                 >
                                                                     {isSpeakingTranslatedText ? (
                                                                         <SpeakerMotion />
@@ -1373,11 +1571,10 @@ export function PopupCard(props: IPopupCardProps) {
                                                                         <RxSpeakerLoud size={13} />
                                                                     )}
                                                                 </div>
-                                                            </StatefulTooltip>
-                                                            <StatefulTooltip
+                                                            </Tooltip>
+                                                            <Tooltip
                                                                 content={t('Copy to clipboard')}
-                                                                showArrow
-                                                                placement='left'
+                                                                placement='bottom'
                                                             >
                                                                 <div>
                                                                     <CopyToClipboard
@@ -1395,7 +1592,7 @@ export function PopupCard(props: IPopupCardProps) {
                                                                         </div>
                                                                     </CopyToClipboard>
                                                                 </div>
-                                                            </StatefulTooltip>
+                                                            </Tooltip>
                                                         </div>
                                                     )}
                                                 </div>
@@ -1407,9 +1604,8 @@ export function PopupCard(props: IPopupCardProps) {
                         )}
                         {props.showSettings && (
                             <div className={styles.footer}>
-                                <StatefulTooltip
+                                <Tooltip
                                     content={showSettings ? t('Go to Translator') : t('Go to Settings')}
-                                    showArrow
                                     placement='right'
                                 >
                                     <div onClick={() => setShowSettings((s) => !s)}>
@@ -1419,9 +1615,38 @@ export function PopupCard(props: IPopupCardProps) {
                                             <IoSettingsOutline size='14' />
                                         )}
                                     </div>
-                                </StatefulTooltip>
+                                </Tooltip>
                             </div>
                         )}
+                        <Modal
+                            isOpen={vocabularyType !== 'hide'}
+                            onClose={() => setVocabularyType('hide')}
+                            closeable
+                            overrides={{
+                                Close: {
+                                    style: {
+                                        display: 'none',
+                                    },
+                                },
+                            }}
+                            size='auto'
+                            autoFocus
+                            animate
+                            role='dialog'
+                        >
+                            <Vocabulary
+                                onCancel={() => setVocabularyType('hide')}
+                                onInsert={(content, highlightWords) => {
+                                    setEditableText(content)
+                                    setOriginalText(content)
+                                    setHighlightWords(highlightWords)
+                                    setSelectedWord('')
+                                    setTranslateMode('translate')
+                                    setVocabularyType('hide')
+                                }}
+                                type={vocabularyType as 'vocabulary' | 'article'}
+                            />
+                        </Modal>
                         <Toaster />
                     </div>
                 </BaseProvider>

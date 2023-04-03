@@ -1,4 +1,5 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
+import { BaseDirectory, writeTextFile } from '@tauri-apps/api/fs'
 import { IBrowser, ISettings } from './types'
 
 export const defaultAPIURL = 'https://api.openai.com'
@@ -33,7 +34,9 @@ const settingKeys: Record<keyof ISettings, number> = {
     ocrHotkey: 1,
     themeType: 1,
     i18n: 1,
+    ttsVoices: 1,
     restorePreviousPosition: 1,
+    runAtStartup: 1,
 }
 
 export async function getSettings(): Promise<ISettings> {
@@ -115,4 +118,51 @@ export const isDarkMode = async () => {
         return window.matchMedia('(prefers-color-scheme: dark)').matches
     }
     return settings.themeType === 'dark'
+}
+
+export const isFirefox = /firefox/i.test(navigator.userAgent)
+
+// js to csv
+export async function exportToCsv<T extends Record<string, string | number>>(filename: string, rows: T[]) {
+    if (!rows.length) return
+    filename += '.csv'
+    const columns = Object.keys(rows[0])
+    let csvFile = ''
+    for (const key of columns) {
+        csvFile += key + ','
+    }
+    csvFile += '\r\n'
+    const processRow = function (row: T) {
+        let s = ''
+        for (const key of columns) {
+            if (key == 'updatedAt') {
+                s += '\t' + `${row[key]}` + ','
+            } else {
+                s += '"' + `${row[key]}` + '"' + ','
+            }
+        }
+        return s + '\r\n'
+    }
+
+    for (let i = 0; i < rows.length; i++) {
+        csvFile += processRow(rows[i])
+    }
+
+    if (isDesktopApp()) {
+        try {
+            return await writeTextFile(filename, csvFile, { dir: BaseDirectory.Desktop })
+        } catch (e) {
+            console.error(e)
+        }
+    } else {
+        const link = document.createElement('a')
+        if (link.download !== undefined) {
+            link.setAttribute('href', 'data:text/csv;charset=utf-8,ufeff' + encodeURIComponent(csvFile))
+            link.setAttribute('download', filename)
+            // link.style.visibility = 'hidden'
+            document.body.appendChild(link)
+            link.click()
+            document.body.removeChild(link)
+        }
+    }
 }

@@ -55,5 +55,10 @@ export interface ISettings {
     ocrHotkey?: string
     themeType?: ThemeType
     i18n?: string
+    ttsVoices?: {
+        lang: string
+        voice: string
+    }[]
     restorePreviousPosition?: boolean
+    runAtStartup?: boolean
 }
