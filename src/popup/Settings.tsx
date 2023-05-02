@@ -28,6 +28,9 @@ import { useSettings } from '../common/hooks/useSettings'
 import { langCode2TTSLang } from '../common/tts'
 import { RiDeleteBin5Line } from 'react-icons/ri'
 import { IoMdAdd } from 'react-icons/io'
+import { TTSProvider } from '../common/tts/types'
+import { getEdgeVoices } from '../common/tts/edge-tts'
+import { backgroundFetch } from '../common/background-fetch'
 
 const langOptions: Value = supportLanguages.reduce((acc, [id, label]) => {
     return [
@@ -176,7 +179,6 @@ const useTTSSettingsStyles = createUseStyles({
         color: props.theme.colors.contentPrimary,
         display: 'block',
         marignTop: '4px',
-        marginBottom: '4px',
     }),
     voiceSelector: {
         display: 'flex',
@@ -184,13 +186,27 @@ const useTTSSettingsStyles = createUseStyles({
         gap: '6px',
         marginTop: '10px',
     },
+    providerSelector: {
+        marginTop: '10px',
+    },
+    formControl: {
+        marginBottom: '12px',
+    },
 })
 
 interface TTSVoicesSettingsProps {
-    value?: ISettings['ttsVoices']
-    onChange?: (value: ISettings['ttsVoices']) => void
+    value?: ISettings['tts']
+    onChange?: (value: ISettings['tts']) => void
     onBlur?: () => void
 }
+
+const ttsProviderOptions: {
+    label: string
+    id: TTSProvider
+}[] = [
+    { label: 'Edge TTS', id: 'EdgeTTS' },
+    { label: 'System Default', id: 'WebSpeech' },
+]
 
 function TTSVoicesSettings(props: TTSVoicesSettingsProps) {
     const { theme, themeType } = useTheme()
@@ -199,14 +215,30 @@ function TTSVoicesSettings(props: TTSVoicesSettingsProps) {
 
     const [showLangSelector, setShowLangSelector] = useState(false)
 
-    const supportVoices = window.speechSynthesis?.getVoices() ?? []
+    const [supportVoices, setSupportVoices] = useState<SpeechSynthesisVoice[]>([])
+
+    useEffect(() => {
+        ;(async () => {
+            switch (props.value?.provider ?? 'WebSpeech') {
+                case 'EdgeTTS':
+                    setSupportVoices(await getEdgeVoices())
+                    break
+                case 'WebSpeech':
+                    setSupportVoices(speechSynthesis.getVoices())
+                    break
+                default:
+                    setSupportVoices(speechSynthesis.getVoices())
+                    break
+            }
+        })()
+    }, [props.value?.provider])
 
     const getLangOptions = useCallback(
         (lang: string) => {
             return supportLanguages.reduce((acc, [langCode, label]) => {
                 const ttsLang = langCode2TTSLang[langCode]
                 if (ttsLang && supportVoices.find((v) => v.lang === ttsLang)) {
-                    if (props.value?.find((item) => item.lang === langCode) && langCode !== lang) {
+                    if (props.value?.voices?.find((item) => item.lang === langCode) && langCode !== lang) {
                         return acc
                     }
                     return [
@@ -220,7 +252,7 @@ function TTSVoicesSettings(props: TTSVoicesSettingsProps) {
                 return acc
             }, [] as Value)
         },
-        [props.value]
+        [props.value, supportVoices]
     )
 
     const getVoiceOptions = useCallback(
@@ -230,23 +262,23 @@ function TTSVoicesSettings(props: TTSVoicesSettingsProps) {
                 .filter((v) => v.lang === ttsLang)
                 .map((sv) => ({ id: sv.voiceURI, label: sv.name, lang: sv.lang }))
         },
-        [props.value]
+        [props.value, supportVoices]
     )
 
     const handleDeleteLang = useCallback(
         (lang: string) => {
-            const voices = props.value ?? []
+            const voices = props.value?.voices ?? []
             const newVoices = voices.filter((item) => {
                 return item.lang !== lang
             })
-            props.onChange?.(newVoices)
+            props.onChange?.({ ...props.value, voices: newVoices })
         },
         [props.value]
     )
 
     const handleChangeLang = useCallback(
         (prevLang: string, newLang: string) => {
-            const voices = props.value ?? []
+            const voices = props.value?.voices ?? []
             const newVoices = voices.map((item) => {
                 if (item.lang === prevLang) {
                     return {
@@ -256,21 +288,24 @@ function TTSVoicesSettings(props: TTSVoicesSettingsProps) {
                 }
                 return item
             })
-            props.onChange?.(newVoices)
+            props.onChange?.({ ...props.value, voices: newVoices })
         },
         [props.value]
     )
 
     const handleAddLang = useCallback(
         (lang: string) => {
-            const voices = props.value ?? []
-            props.onChange?.([
-                ...voices,
-                {
-                    lang,
-                    voice: '',
-                },
-            ])
+            const voices = props.value?.voices ?? []
+            props.onChange?.({
+                ...props.value,
+                voices: [
+                    ...voices,
+                    {
+                        lang,
+                        voice: '',
+                    },
+                ],
+            })
             setShowLangSelector(false)
         },
         [props.value]
@@ -278,7 +313,7 @@ function TTSVoicesSettings(props: TTSVoicesSettingsProps) {
 
     const handleChangeVoice = useCallback(
         (lang: string, voice: string) => {
-            const voices = props.value ?? []
+            const voices = props.value?.voices ?? []
             const newVoices = voices.map((item) => {
                 if (item.lang === lang) {
                     return {
@@ -288,16 +323,34 @@ function TTSVoicesSettings(props: TTSVoicesSettingsProps) {
                 }
                 return item
             })
-            props.onChange?.(newVoices)
+            props.onChange?.({ ...props.value, voices: newVoices })
         },
         [props.value]
     )
 
+    const handleChangeProvider = (provider: TTSProvider) => {
+        props.onChange?.({ ...props.value, provider })
+    }
+
     return (
         <div>
-            <div>
+            <div className={styles.formControl}>
+                <label className={styles.settingsLabel}>Provider</label>
+                <div className={styles.providerSelector}>
+                    <Select
+                        size='compact'
+                        clearable={false}
+                        searchable={false}
+                        options={ttsProviderOptions}
+                        value={[{ id: props.value?.provider ?? 'WebSpeech' }]}
+                        onChange={({ option }) => handleChangeProvider(option?.id as TTSProvider)}
+                        onBlur={props.onBlur}
+                    />
+                </div>
+            </div>
+            <div className={styles.formControl}>
                 <label className={styles.settingsLabel}>Voice</label>
-                {(props.value ?? []).map(({ lang, voice }) => (
+                {(props.value?.voices ?? []).map(({ lang, voice }) => (
                     <div className={styles.voiceSelector} key={lang}>
                         <Select
                             size='compact'
@@ -435,13 +488,13 @@ function APIModelSelector(props: APIModelSelectorProps) {
                 { label: 'gpt-4-32k-0314', id: 'gpt-4-32k-0314' },
             ])
         } else if (props.provider === 'ChatGPT') {
-            fetch(utils.defaultChatGPTAPIAuthSession, { cache: 'no-cache' })
+            backgroundFetch(utils.defaultChatGPTAPIAuthSession, { cache: 'no-cache' })
                 .then((response) => response.json())
                 .then((resp) => {
                     const headers: Record<string, string> = {
                         Authorization: `Bearer ${resp.accessToken}`,
                     }
-                    return fetch(`${utils.defaultChatGPTWebAPI}/models`, {
+                    return backgroundFetch(`${utils.defaultChatGPTWebAPI}/models`, {
                         cache: 'no-cache',
                         headers,
                     }).then((response) => response.json())
@@ -450,6 +503,7 @@ function APIModelSelector(props: APIModelSelectorProps) {
                     if (!models || !models.models) {
                         return
                     }
+                    // eslint-disable-next-line @typescript-eslint/no-explicit-any
                     setOptions(models.models.map((model: any) => ({ label: model.title, id: model.slug })))
                 })
                 .catch((e) => {
@@ -690,6 +744,23 @@ function HotkeyRecorder(props: IHotkeyRecorderProps) {
 }
 
 function ProviderSelector(props: IProviderSelectorProps) {
+    const options = utils.isDesktopApp()
+        ? ([
+              { label: 'OpenAI', id: 'OpenAI' },
+              { label: 'Azure', id: 'Azure' },
+          ] as {
+              label: string
+              id: Provider
+          }[])
+        : ([
+              { label: 'OpenAI', id: 'OpenAI' },
+              { label: 'ChatGPT (Web)', id: 'ChatGPT' },
+              { label: 'Azure', id: 'Azure' },
+          ] as {
+              label: string
+              id: Provider
+          }[])
+
     return (
         <Select
             size='compact'
@@ -705,16 +776,7 @@ function ProviderSelector(props: IProviderSelectorProps) {
             onChange={(params) => {
                 props.onChange?.(params.value[0].id as Provider | 'OpenAI')
             }}
-            options={
-                [
-                    { label: 'OpenAI', id: 'OpenAI' },
-                    { label: 'ChatGPT (Web)', id: 'ChatGPT' },
-                    { label: 'Azure', id: 'Azure' },
-                ] as {
-                    label: string
-                    id: Provider
-                }[]
-            }
+            options={options}
         />
     )
 }
@@ -954,7 +1016,7 @@ export function Settings(props: IPopupProps) {
                         <FormItem name='i18n' label={t('i18n')}>
                             <Ii18nSelector onBlur={onBlur} />
                         </FormItem>
-                        <FormItem name='ttsVoices' label={t('TTS')}>
+                        <FormItem name='tts' label={t('TTS')}>
                             <TTSVoicesSettings onBlur={onBlur} />
                         </FormItem>
                         <FormItem name='hotkey' label={t('Hotkey')}>

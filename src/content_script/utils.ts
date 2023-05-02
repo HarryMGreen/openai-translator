@@ -1,7 +1,7 @@
 import { createParser } from 'eventsource-parser'
 import { backgroundFetch } from '../common/background-fetch'
 import { userscriptFetch } from '../common/userscript-polyfill'
-import { isFirefox, isUserscript } from '../common/utils'
+import { isDesktopApp, isUserscript } from '../common/utils'
 import { containerID, documentPadding, popupCardID, popupThumbID, zIndex } from './consts'
 
 function attachEventsToContainer($container: HTMLElement) {
@@ -63,21 +63,21 @@ interface FetchSSEOptions extends RequestInit {
     onMessage(data: string): void
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     onError(error: any): void
+    fetcher?: (input: string, options: RequestInit) => Promise<Response>
 }
 
 export async function fetchSSE(input: string, options: FetchSSEOptions) {
     const { onMessage, onError, ...fetchOptions } = options
 
-    if (isFirefox) {
-        return await backgroundFetch(input, options)
-    }
+    const fetcher =
+        options.fetcher ?? (isUserscript() ? userscriptFetch : !isDesktopApp() ? backgroundFetch : window.fetch)
 
-    const fetch = isUserscript() ? userscriptFetch : window.fetch
-    const resp = await fetch(input, fetchOptions)
+    const resp = await fetcher(input, fetchOptions)
     if (resp.status !== 200) {
         onError(await resp.json())
         return
     }
+
     const parser = createParser((event) => {
         if (event.type === 'event') {
             onMessage(event.data)

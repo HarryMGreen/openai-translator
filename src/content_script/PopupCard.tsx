@@ -22,7 +22,7 @@ import { clsx } from 'clsx'
 import { Button } from 'baseui-sd/button'
 import { ErrorBoundary } from 'react-error-boundary'
 import { ErrorFallback } from '../components/ErrorFallback'
-import { defaultAPIURL, exportToCsv, isDesktopApp, isTauri } from '../common/utils'
+import { defaultAPIURL, exportToCsv, isDesktopApp, isFirefox, isTauri } from '../common/utils'
 import { Settings } from '../popup/Settings'
 import { documentPadding } from './consts'
 import Dropzone from 'react-dropzone'
@@ -46,16 +46,20 @@ import { LocalDB, VocabularyItem } from '../common/db'
 import { useCollectedWordTotal } from '../common/hooks/useCollectedWordTotal'
 import { Modal } from 'baseui-sd/modal'
 import * as Sentry from '@sentry/react'
+import ReactGA from 'react-ga4'
 
-Sentry.init({
-    dsn: 'https://477519542bd6491cb347ca3f55fcdce6@o441417.ingest.sentry.io/4505051776090112',
-    integrations: [new Sentry.BrowserTracing(), new Sentry.Replay()],
-    // Performance Monitoring
-    tracesSampleRate: 0.5, // Capture 100% of the transactions, reduce in production!
-    // Session Replay
-    replaysSessionSampleRate: 0.1, // This sets the sample rate at 10%. You may want to change it to 100% while in development and then sample at a lower rate in production.
-    replaysOnErrorSampleRate: 1.0, // If you're not already sampling the entire session, change the sample rate to 100% when sampling sessions where errors occur.
-})
+!isFirefox &&
+    Sentry.init({
+        dsn: 'https://477519542bd6491cb347ca3f55fcdce6@o441417.ingest.sentry.io/4505051776090112',
+        integrations: [new Sentry.BrowserTracing(), new Sentry.Replay()],
+        // Performance Monitoring
+        tracesSampleRate: 0.5, // Capture 100% of the transactions, reduce in production!
+        // Session Replay
+        replaysSessionSampleRate: 0.1, // This sets the sample rate at 10%. You may want to change it to 100% while in development and then sample at a lower rate in production.
+        replaysOnErrorSampleRate: 1.0, // If you're not already sampling the entire session, change the sample rate to 100% when sampling sessions where errors occur.
+    })
+
+ReactGA.initialize('G-D7054DX333')
 
 const cache = new LRUCache({
     max: 500,
@@ -385,6 +389,7 @@ export interface TesseractResult extends RecognizeResult {
 }
 
 export interface IPopupCardProps {
+    uuid?: string
     text: string
     engine: Styletron
     autoFocus?: boolean
@@ -484,7 +489,9 @@ export function PopupCard(props: IPopupCardProps) {
             }
             const selectedWord_ = editor.value.substring(editor.selectionStart, editor.selectionEnd).trim()
             setSelectedWord(selectedWord_)
-            setHighlightWords([])
+            if (selectedWord_) {
+                setHighlightWords([])
+            }
         }
         const onBlur = onMouseUp
 
@@ -546,38 +553,45 @@ export function PopupCard(props: IPopupCardProps) {
     }, [])
     useEffect(() => {
         setOriginalText(props.text)
-    }, [props.text])
+    }, [props.text, props.uuid])
     useEffect(() => {
         setEditableText(originalText)
         setSelectedWord('')
-    }, [originalText])
-    const [detectFrom, setDetectFrom] = useState('')
-    const [detectTo, setDetectTo] = useState('')
-    const stopAutomaticallyChangeDetectTo = useRef(false)
+    }, [originalText, props.uuid])
+    useEffect(() => {
+        setHighlightWords([])
+    }, [props.uuid])
+    const [originalLang, setOriginalLang] = useState('')
+    const [targetLang, setTargetLang] = useState('')
+    const stopAutomaticallyChangeTargetLang = useRef(false)
     useEffect(() => {
         ;(async () => {
-            const from = (await detectLang(originalText)) ?? 'en'
-            setDetectFrom(from)
+            const originalLang_ = (await detectLang(originalText)) ?? 'en'
+            setOriginalLang(originalLang_)
             if (
                 (translateMode === 'translate' || translateMode === 'analyze') &&
-                !stopAutomaticallyChangeDetectTo.current
+                (!stopAutomaticallyChangeTargetLang.current || originalLang_ === targetLang)
             ) {
-                setDetectTo(from === 'zh-Hans' || from === 'zh-Hant' ? 'en' : settings?.defaultTargetLanguage ?? 'en')
+                setTargetLang(
+                    originalLang_ === 'zh-Hans' || originalLang_ === 'zh-Hant'
+                        ? 'en'
+                        : settings?.defaultTargetLanguage ?? 'en'
+                )
             }
         })()
-    }, [originalText, translateMode, settings])
+    }, [originalText, translateMode, settings, props.uuid, targetLang])
 
     const [actionStr, setActionStr] = useState('')
 
     useEffect(() => {
         const editor = editorRef.current
         if (!editor) return
-        editor.dir = ['ar', 'fa', 'he', 'ug', 'ur'].includes(detectFrom) ? 'rtl' : 'ltr'
-    }, [detectFrom, actionStr])
+        editor.dir = ['ar', 'fa', 'he', 'ug', 'ur'].includes(originalLang) ? 'rtl' : 'ltr'
+    }, [originalLang, actionStr])
     const [translatedLanguageDirection, setTranslatedLanguageDirection] = useState<Theme['direction']>('ltr')
     useEffect(() => {
-        setTranslatedLanguageDirection(['ar', 'fa', 'he', 'ug', 'ur'].includes(detectTo) ? 'rtl' : 'ltr')
-    }, [detectTo])
+        setTranslatedLanguageDirection(['ar', 'fa', 'he', 'ug', 'ur'].includes(targetLang) ? 'rtl' : 'ltr')
+    }, [targetLang])
 
     const headerRef = useRef<HTMLDivElement>(null)
 
@@ -731,13 +745,13 @@ export function PopupCard(props: IPopupCardProps) {
     const translateText = useCallback(
         async (text: string, selectedWord: string, signal: AbortSignal) => {
             setShowWordbookButtons(false)
-            if (!text || !detectFrom || !detectTo || !translateMode) {
+            if (!text || !originalLang || !targetLang || !translateMode) {
                 return
             }
             const actionStrItem = actionStrItems[translateMode]
             const beforeTranslate = () => {
                 let actionStr = actionStrItem.beforeStr
-                if (translateMode === 'translate' && detectFrom == detectTo) {
+                if (translateMode === 'translate' && originalLang === targetLang) {
                     actionStr = 'Polishing...'
                 }
                 setActionStr(actionStr)
@@ -748,7 +762,7 @@ export function PopupCard(props: IPopupCardProps) {
             const afterTranslate = (reason: string) => {
                 stopLoading()
                 if (reason !== 'stop') {
-                    if (reason == 'length' || reason == 'max_tokens') {
+                    if (reason === 'length' || reason === 'max_tokens') {
                         toast(t('Chars Limited'), {
                             duration: 5000,
                             icon: '😥',
@@ -759,14 +773,16 @@ export function PopupCard(props: IPopupCardProps) {
                     }
                 } else {
                     let actionStr = actionStrItem.afterStr
-                    if (translateMode === 'translate' && detectFrom == detectTo) {
+                    if (translateMode === 'translate' && originalLang === targetLang) {
                         actionStr = 'Polished'
                     }
                     setActionStr(actionStr)
                 }
             }
             beforeTranslate()
-            const cachedKey = `translate:${translateMode}:${detectFrom}:${detectTo}:${text}:${selectedWord}`
+            const cachedKey = `translate:${settings?.provider ?? ''}:${
+                settings?.apiModel ?? ''
+            }:${translateMode}:${originalLang}:${targetLang}:${text}:${selectedWord}`
             const cachedValue = cache.get(cachedKey)
             if (cachedValue) {
                 afterTranslate('stop')
@@ -780,8 +796,8 @@ export function PopupCard(props: IPopupCardProps) {
                     signal,
                     text,
                     selectedWord,
-                    detectFrom,
-                    detectTo,
+                    detectFrom: originalLang,
+                    detectTo: targetLang,
                     onMessage: (message) => {
                         if (message.role) {
                             return
@@ -797,16 +813,7 @@ export function PopupCard(props: IPopupCardProps) {
                     onFinish: (reason) => {
                         afterTranslate(reason)
                         setTranslatedText((translatedText) => {
-                            let result = translatedText
-                            if (
-                                translatedText &&
-                                ['”', '"', '」'].indexOf(translatedText[translatedText.length - 1]) >= 0
-                            ) {
-                                result = translatedText.slice(0, -1)
-                            }
-                            if (result && ['“', '"', '「'].indexOf(result[0]) >= 0) {
-                                result = result.slice(1)
-                            }
+                            const result = translatedText
                             cache.set(cachedKey, result)
                             return result
                         })
@@ -832,7 +839,7 @@ export function PopupCard(props: IPopupCardProps) {
                 }
             }
         },
-        [translateMode, detectFrom, detectTo]
+        [translateMode, originalLang, targetLang]
     )
 
     useEffect(() => {
@@ -843,11 +850,6 @@ export function PopupCard(props: IPopupCardProps) {
             controller.abort()
         }
     }, [translateText, originalText, selectedWord, translationFlag])
-
-    const handleSpeakDone = () => {
-        setIsSpeakingEditableText(false)
-        setIsSpeakingTranslatedText(false)
-    }
 
     const [showSettings, setShowSettings] = useState(false)
     useEffect(() => {
@@ -1010,41 +1012,45 @@ export function PopupCard(props: IPopupCardProps) {
         }
     }
 
-    const handleEditSpeakAction = () => {
-        if (typeof window.speechSynthesis === 'undefined') {
-            return
+    const editableStopSpeakRef = useRef<() => void>(() => null)
+    const translatedStopSpeakRef = useRef<() => void>(() => null)
+    useEffect(() => {
+        return () => {
+            editableStopSpeakRef.current()
+            translatedStopSpeakRef.current()
         }
-
+    }, [])
+    const handleEditSpeakAction = async () => {
         if (isSpeakingEditableText) {
-            speechSynthesis.cancel()
+            editableStopSpeakRef.current()
             setIsSpeakingEditableText(false)
             return
         }
         setIsSpeakingEditableText(true)
-        speak({
+        const { stopSpeak } = await speak({
             text: editableText,
-            lang: detectFrom,
-            onFinish: handleSpeakDone,
+            lang: originalLang,
+            onFinish: () => setIsSpeakingEditableText(false),
         })
+        editableStopSpeakRef.current = stopSpeak
     }
 
-    const handleTranslatedSpeakAction = () => {
-        if (typeof window.speechSynthesis === 'undefined') {
-            return
-        }
-
+    const handleTranslatedSpeakAction = async () => {
         if (isSpeakingTranslatedText) {
-            speechSynthesis.cancel()
+            translatedStopSpeakRef.current()
             setIsSpeakingTranslatedText(false)
             return
         }
         setIsSpeakingTranslatedText(true)
-        speak({
+        const { stopSpeak } = await speak({
             text: translatedText,
-            lang: detectTo,
-            onFinish: handleSpeakDone,
+            lang: targetLang,
+            onFinish: () => setIsSpeakingTranslatedText(false),
         })
+        translatedStopSpeakRef.current = stopSpeak
     }
+
+    const enableVocabulary = isDesktopApp() || collectedWordTotal > 0
 
     return (
         <ErrorBoundary FallbackComponent={ErrorFallback}>
@@ -1060,7 +1066,11 @@ export function PopupCard(props: IPopupCardProps) {
                             paddingBottom: showSettings ? '0px' : '30px',
                         }}
                     >
-                        {showSettings ? (
+                        <div
+                            style={{
+                                display: showSettings ? 'block' : 'none',
+                            }}
+                        >
                             <Settings
                                 onSave={(oldSettings) => {
                                     setShowSettings(false)
@@ -1068,7 +1078,12 @@ export function PopupCard(props: IPopupCardProps) {
                                 }}
                                 engine={props.engine}
                             />
-                        ) : (
+                        </div>
+                        <div
+                            style={{
+                                display: !showSettings ? 'block' : 'none',
+                            }}
+                        >
                             <div style={props.containerStyle}>
                                 <div
                                     ref={headerRef}
@@ -1091,7 +1106,7 @@ export function PopupCard(props: IPopupCardProps) {
                                                 size='mini'
                                                 clearable={false}
                                                 options={langOptions}
-                                                value={[{ id: detectFrom }]}
+                                                value={[{ id: originalLang }]}
                                                 overrides={{
                                                     Root: {
                                                         style: {
@@ -1101,9 +1116,9 @@ export function PopupCard(props: IPopupCardProps) {
                                                 }}
                                                 onChange={({ value }) => {
                                                     if (value.length > 0) {
-                                                        setDetectFrom(value[0].id as string)
+                                                        setOriginalLang(value[0].id as string)
                                                     } else {
-                                                        setDetectFrom(langOptions[0].id as string)
+                                                        setOriginalLang(langOptions[0].id as string)
                                                     }
                                                 }}
                                             />
@@ -1112,8 +1127,8 @@ export function PopupCard(props: IPopupCardProps) {
                                             className={styles.arrow}
                                             onClick={() => {
                                                 setOriginalText(translatedText)
-                                                setDetectFrom(detectTo)
-                                                setDetectTo(detectFrom)
+                                                setOriginalLang(targetLang)
+                                                setTargetLang(originalLang)
                                             }}
                                         >
                                             <Tooltip content='Exchange' placement='top'>
@@ -1128,7 +1143,7 @@ export function PopupCard(props: IPopupCardProps) {
                                                 size='mini'
                                                 clearable={false}
                                                 options={langOptions}
-                                                value={[{ id: detectTo }]}
+                                                value={[{ id: targetLang }]}
                                                 overrides={{
                                                     Root: {
                                                         style: {
@@ -1137,11 +1152,11 @@ export function PopupCard(props: IPopupCardProps) {
                                                     },
                                                 }}
                                                 onChange={({ value }) => {
-                                                    stopAutomaticallyChangeDetectTo.current = true
+                                                    stopAutomaticallyChangeTargetLang.current = true
                                                     if (value.length > 0) {
-                                                        setDetectTo(value[0].id as string)
+                                                        setTargetLang(value[0].id as string)
                                                     } else {
-                                                        setDetectTo(langOptions[0].id as string)
+                                                        setTargetLang(langOptions[0].id as string)
                                                     }
                                                 }}
                                             />
@@ -1163,7 +1178,7 @@ export function PopupCard(props: IPopupCardProps) {
                                                 kind={translateMode === 'polishing' ? 'primary' : 'secondary'}
                                                 onClick={() => {
                                                     setTranslateMode('polishing')
-                                                    setDetectTo(detectFrom)
+                                                    setTargetLang(originalLang)
                                                 }}
                                             >
                                                 <IoColorPaletteOutline />
@@ -1361,7 +1376,7 @@ export function PopupCard(props: IPopupCardProps) {
                                                         </Dropzone>
                                                     </div>
                                                 </Tooltip>
-                                                {collectedWordTotal > 0 && (
+                                                {enableVocabulary && (
                                                     <StatefulTooltip
                                                         content={
                                                             <Trans
@@ -1382,7 +1397,7 @@ export function PopupCard(props: IPopupCardProps) {
                                                         </div>
                                                     </StatefulTooltip>
                                                 )}
-                                                {showWordbookButtons && collectedWordTotal > 0 && (
+                                                {showWordbookButtons && (
                                                     <>
                                                         <StatefulTooltip
                                                             content={t('Collection Review')}
@@ -1421,11 +1436,7 @@ export function PopupCard(props: IPopupCardProps) {
                                                 <>
                                                     <Tooltip content={t('Speak')} placement='bottom'>
                                                         <div
-                                                            className={
-                                                                window.speechSynthesis
-                                                                    ? styles.actionButton
-                                                                    : styles.actionButtonDisabled
-                                                            }
+                                                            className={styles.actionButton}
                                                             onClick={handleEditSpeakAction}
                                                         >
                                                             {isSpeakingEditableText ? (
@@ -1518,7 +1529,7 @@ export function PopupCard(props: IPopupCardProps) {
                                                             {translatedLines.map((line, i) => {
                                                                 return (
                                                                     <p className={styles.paragraph} key={`p-${i}`}>
-                                                                        {isWordMode && i == 0 ? (
+                                                                        {isWordMode && i === 0 ? (
                                                                             <div
                                                                                 style={{
                                                                                     display: 'flex',
@@ -1576,11 +1587,7 @@ export function PopupCard(props: IPopupCardProps) {
                                                             <div style={{ marginRight: 'auto' }} />
                                                             <Tooltip content={t('Speak')} placement='bottom'>
                                                                 <div
-                                                                    className={
-                                                                        window.speechSynthesis
-                                                                            ? styles.actionButton
-                                                                            : styles.actionButtonDisabled
-                                                                    }
+                                                                    className={styles.actionButton}
                                                                     onClick={handleTranslatedSpeakAction}
                                                                 >
                                                                     {isSpeakingTranslatedText ? (
@@ -1619,7 +1626,7 @@ export function PopupCard(props: IPopupCardProps) {
                                     )}
                                 </div>
                             </div>
-                        )}
+                        </div>
                         {props.showSettings && (
                             <div className={styles.footer}>
                                 <Tooltip
@@ -1636,35 +1643,37 @@ export function PopupCard(props: IPopupCardProps) {
                                 </Tooltip>
                             </div>
                         )}
-                        <Modal
-                            isOpen={vocabularyType !== 'hide'}
-                            onClose={() => setVocabularyType('hide')}
-                            closeable
-                            overrides={{
-                                Close: {
-                                    style: {
-                                        display: 'none',
+                        {enableVocabulary && (
+                            <Modal
+                                isOpen={vocabularyType !== 'hide'}
+                                onClose={() => setVocabularyType('hide')}
+                                closeable
+                                overrides={{
+                                    Close: {
+                                        style: {
+                                            display: 'none',
+                                        },
                                     },
-                                },
-                            }}
-                            size='auto'
-                            autoFocus
-                            animate
-                            role='dialog'
-                        >
-                            <Vocabulary
-                                onCancel={() => setVocabularyType('hide')}
-                                onInsert={(content, highlightWords) => {
-                                    setEditableText(content)
-                                    setOriginalText(content)
-                                    setHighlightWords(highlightWords)
-                                    setSelectedWord('')
-                                    setTranslateMode('translate')
-                                    setVocabularyType('hide')
                                 }}
-                                type={vocabularyType as 'vocabulary' | 'article'}
-                            />
-                        </Modal>
+                                size='auto'
+                                autoFocus
+                                animate
+                                role='dialog'
+                            >
+                                <Vocabulary
+                                    onCancel={() => setVocabularyType('hide')}
+                                    onInsert={(content, highlightWords) => {
+                                        setEditableText(content)
+                                        setOriginalText(content)
+                                        setHighlightWords(highlightWords)
+                                        setSelectedWord('')
+                                        setTranslateMode('translate')
+                                        setVocabularyType('hide')
+                                    }}
+                                    type={vocabularyType as 'vocabulary' | 'article'}
+                                />
+                            </Modal>
+                        )}
                         <Toaster />
                     </div>
                 </BaseProvider>

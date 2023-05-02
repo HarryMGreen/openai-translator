@@ -37,7 +37,7 @@ const settingKeys: Record<keyof ISettings, number> = {
     ocrHotkey: 1,
     themeType: 1,
     i18n: 1,
-    ttsVoices: 1,
+    tts: 1,
     restorePreviousPosition: 1,
     runAtStartup: 1,
     selectInputElementsText: 1,
@@ -163,7 +163,7 @@ export async function exportToCsv<T extends Record<string, string | number>>(fil
     const processRow = function (row: T) {
         let s = ''
         for (const key of columns) {
-            if (key == 'updatedAt') {
+            if (key === 'updatedAt') {
                 s += '\t' + `${row[key]}` + ','
             } else {
                 s += '"' + `${row[key]}` + '"' + ','

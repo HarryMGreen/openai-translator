@@ -1,41 +1,64 @@
-interface BackgroundFetchMessage {
-    error: { message: string; name?: string }
+interface BackgroundFetchMessage
+    extends Pick<Response, 'ok' | 'status' | 'statusText' | 'redirected' | 'type' | 'url'> {
+    error: { message: string; name: string }
     status: number
-    response: unknown
+    data?: string
 }
 
-interface BackgroundFetchOptions extends RequestInit {
-    stream?: boolean
-    onMessage(data: string): void
-    onError(error: Pick<BackgroundFetchMessage, 'error'>): void
-}
-
-export async function backgroundFetch(input: string, { stream = true, ...options }: BackgroundFetchOptions) {
-    return new Promise<void>((resolve, reject) => {
+export async function backgroundFetch(input: string, options: RequestInit) {
+    return new Promise<Response>((resolve, reject) => {
         ;(async () => {
-            const { onMessage, onError, signal, ...fetchOptions } = options
+            const { signal, ...fetchOptions } = options
+            if (signal?.aborted) {
+                reject(new DOMException('Aborted', 'AbortError'))
+                return
+            }
+
+            const transformStream = new TransformStream<Uint8Array, Uint8Array>()
+            const { writable, readable } = transformStream
+            const writer = writable.getWriter()
+            const textEncoder = new TextEncoder()
+
+            async function readText() {
+                const decoder = new TextDecoderStream()
+                const reader = readable.pipeThrough(decoder).getReader()
+                let text = ''
+                // eslint-disable-next-line no-constant-condition
+                while (true) {
+                    const { done, value } = await reader.read()
+                    if (done) {
+                        break
+                    }
+                    text += value
+                }
+                return text
+            }
 
             const browser = await require('webextension-polyfill')
+            let resolved = false
             const port = browser.runtime.connect({ name: 'background-fetch' })
-            port.postMessage({ type: 'open', details: { url: input, options: { ...fetchOptions, stream } } })
+            port.postMessage({ type: 'open', details: { url: input, options: fetchOptions } })
             port.onMessage.addListener((msg: BackgroundFetchMessage) => {
-                if (msg.error) {
-                    const error = new Error()
-                    error.message = msg.error.message
-                    error.name = msg.error.name ?? 'UnknownError'
-                    reject(error)
+                const { data, error, ...restResp } = msg
+                if (error) {
+                    const e = new Error()
+                    e.message = error.message
+                    e.name = error.name
+                    reject(e)
                     return
                 }
-
-                if (msg.status !== 200) {
-                    onError(msg.response as Pick<BackgroundFetchMessage, 'error'>)
-                    resolve()
-                } else {
-                    onMessage(msg.response as string)
-                    if (!stream) {
-                        resolve()
-                        port.disconnect()
-                    }
+                writer.write(textEncoder.encode(data))
+                if (!resolved) {
+                    resolve({
+                        ...restResp,
+                        body: readable,
+                        text: readText,
+                        json: async () => {
+                            const text = await readText()
+                            return JSON.parse(text)
+                        },
+                    } as Response)
+                    resolved = true
                 }
             })
 
@@ -44,7 +67,7 @@ export async function backgroundFetch(input: string, { stream = true, ...options
             }
             port.onDisconnect.addListener(() => {
                 signal?.removeEventListener('abort', handleAbort)
-                resolve()
+                writer.close()
             })
             signal?.addEventListener('abort', handleAbort)
         })()

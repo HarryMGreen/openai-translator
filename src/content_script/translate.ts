@@ -3,6 +3,8 @@ import * as utils from '../common/utils'
 import { backgroundFetch } from '../common/background-fetch'
 import * as lang from './lang'
 import { fetchSSE } from './utils'
+import urlJoin from 'url-join'
+import { v4 as uuidv4 } from 'uuid'
 
 export type TranslateMode = 'translate' | 'polishing' | 'summarize' | 'analyze' | 'explain-code' | 'big-bang'
 export type Provider = 'OpenAI' | 'ChatGPT' | 'Azure'
@@ -46,22 +48,148 @@ export const isAWord = (lang: string, text: string) => {
     return iterator.next().value?.segment === text
 }
 
+class QuoteProcessor {
+    private quote: string
+    public quoteStart: string
+    public quoteEnd: string
+    private quoteStartBuffer: string
+    private quoteEndBuffer: string
+
+    constructor() {
+        this.quote = uuidv4().replace(/-/g, '').slice(0, 4)
+        this.quoteStart = `<${this.quote}>`
+        this.quoteEnd = `</${this.quote}>`
+        this.quoteStartBuffer = ''
+        this.quoteEndBuffer = ''
+    }
+
+    public processText(textDelta: string): string {
+        if (textDelta === '') {
+            return ''
+        }
+        if (textDelta.trim() === this.quoteEnd) {
+            return ''
+        }
+        let result = textDelta
+        // process quote start
+        let quoteStartBuffer = this.quoteStartBuffer
+        // console.debug('\n\n')
+        // console.debug('---- process quote start -----')
+        // console.debug('textDelta', textDelta)
+        // console.debug('this.quoteStartbuffer', this.quoteStartBuffer)
+        // console.debug('start loop:')
+        let startIdx = 0
+        for (let i = 0; i < textDelta.length; i++) {
+            const char = textDelta[i]
+            // console.debug(`---- i: ${i} ----`)
+            // console.debug('char', char)
+            // console.debug('quoteStartBuffer', quoteStartBuffer)
+            // console.debug('result', result)
+            if (char === this.quoteStart[quoteStartBuffer.length]) {
+                if (this.quoteStartBuffer.length > 0) {
+                    if (i === startIdx) {
+                        quoteStartBuffer += char
+                        result = textDelta.slice(i + 1)
+                        startIdx += 1
+                    } else {
+                        result = this.quoteStartBuffer + textDelta
+                        quoteStartBuffer = ''
+                        break
+                    }
+                } else {
+                    quoteStartBuffer += char
+                    result = textDelta.slice(0, textDelta.length - quoteStartBuffer.length)
+                }
+            } else {
+                if (quoteStartBuffer.length === this.quoteStart.length) {
+                    quoteStartBuffer = ''
+                    break
+                }
+                if (quoteStartBuffer.length > 0) {
+                    result = this.quoteStartBuffer + textDelta
+                    quoteStartBuffer = ''
+                    break
+                }
+            }
+        }
+        // console.debug('end loop!')
+        this.quoteStartBuffer = quoteStartBuffer
+        // console.debug('result', result)
+        // console.debug('this.quoteStartBuffer', this.quoteStartBuffer)
+        // console.debug('---- end of process quote start -----')
+        textDelta = result
+        // process quote end
+        let quoteEndBuffer = this.quoteEndBuffer
+        // console.debug('\n\n')
+        // console.debug('---- start process quote end -----')
+        console.debug('textDelta', textDelta)
+        // console.debug('this.quoteEndBuffer', this.quoteEndBuffer)
+        // console.debug('start loop:')
+        let endIdx = 0
+        for (let i = 0; i < textDelta.length; i++) {
+            const char = textDelta[i]
+            console.debug(`---- i: ${i}, endIdx: ${endIdx} ----`)
+            console.debug('char', char)
+            console.debug('quoteEndBuffer', quoteEndBuffer)
+            console.debug('result', result)
+            if (char === this.quoteEnd[quoteEndBuffer.length]) {
+                if (this.quoteEndBuffer.length > 0) {
+                    if (i === endIdx) {
+                        quoteEndBuffer += char
+                        result = textDelta.slice(i + 1)
+                        endIdx += 1
+                    } else {
+                        result = this.quoteEndBuffer + textDelta
+                        quoteEndBuffer = ''
+                        break
+                    }
+                } else {
+                    quoteEndBuffer += char
+                    result = textDelta.slice(0, textDelta.length - quoteEndBuffer.length)
+                }
+            } else {
+                if (quoteEndBuffer.length === this.quoteEnd.length) {
+                    quoteEndBuffer = ''
+                    break
+                }
+                if (quoteEndBuffer.length > 0) {
+                    result = this.quoteEndBuffer + textDelta
+                    quoteEndBuffer = ''
+                    break
+                }
+            }
+        }
+        // console.debug('end loop!')
+        this.quoteEndBuffer = quoteEndBuffer
+        console.debug('totally result', result)
+        // console.debug('this.quoteEndBuffer', this.quoteEndBuffer)
+        // console.debug('---- end of process quote end -----')
+        return result
+    }
+}
+
 const chineseLangs = ['zh-Hans', 'zh-Hant', 'wyw', 'yue']
 
 export async function translate(query: TranslateQuery) {
+    let quoteProcessor: QuoteProcessor | undefined
     const settings = await utils.getSettings()
     const fromChinese = chineseLangs.indexOf(query.detectFrom) >= 0
     const toChinese = chineseLangs.indexOf(query.detectTo) >= 0
     let systemPrompt = 'You are a translation engine that can only translate text and cannot interpret it.'
-    let assistantPrompt = `translate from ${lang.langMap.get(query.detectFrom) || query.detectFrom} to ${
+    let assistantPrompt = `Translate from ${lang.langMap.get(query.detectFrom) || query.detectFrom} to ${
         lang.langMap.get(query.detectTo) || query.detectTo
-    }`
+    }. Only the translated text can be returned.`
+    let userPrompt = query.text
+
     // a word could be collected
     let isWordMode = false
     switch (query.mode) {
         case 'translate':
+            quoteProcessor = new QuoteProcessor()
+            assistantPrompt += ` Only translate the text between ${quoteProcessor.quoteStart} and ${quoteProcessor.quoteEnd}.`
+            userPrompt = `${quoteProcessor.quoteStart}${query.text}${quoteProcessor.quoteEnd} =>`
             if (query.detectTo === 'wyw' || query.detectTo === 'yue') {
-                assistantPrompt = `翻译成${lang.langMap.get(query.detectTo) || query.detectTo}`
+                assistantPrompt = `请翻译成${lang.langMap.get(query.detectTo) || query.detectTo}`
             }
             if (fromChinese) {
                 if (query.detectTo === 'zh-Hant') {
@@ -83,11 +211,12 @@ export async function translate(query: TranslateQuery) {
                 isWordMode = true
                 // 翻译为中文时，增加单词模式，可以更详细的翻译结果，包括：音标、词性、含义、双语示例。
                 systemPrompt = `你是一个翻译引擎，请将翻译给到的文本，只需要翻译不需要解释。当且仅当文本只有一个单词时，请给出单词原始形态（如果有）、单词的语种、对应的音标（如果有）、所有含义（含词性）、双语示例，至少三条例句，请严格按照下面格式给到翻译结果：
-                <原始文本>
+                <单词>
                 [<语种>] · / <单词音标>
                 [<词性缩写>] <中文含义>]
                 例句：
                 <序号><例句>(例句翻译)`
+                userPrompt = `单词是：${query.text}`
             }
             if (query.selectedWord) {
                 // 在选择的句子中，选择特定的单词。触发语境学习功能。
@@ -103,7 +232,7 @@ export async function translate(query: TranslateQuery) {
                     lang.langMap.get(query.detectTo) || query.detectTo
                 }解释例句。如果你明白了请说同意，然后我们开始。`
                 assistantPrompt = '好的，我明白了，请给我这个句子和单词。'
-                query.text = `句子是：${query.text}\n单词是：${query.selectedWord}`
+                userPrompt = `句子是：${query.text}\n单词是：${query.selectedWord}`
             }
             break
         case 'polishing':
@@ -181,52 +310,13 @@ export async function translate(query: TranslateQuery) {
         isChatAPI = false
         body[
             'prompt'
-        ] = `<|im_start|>system\n${systemPrompt}\n<|im_end|>\n<|im_start|>user\n${assistantPrompt}\n${query.text}\n<|im_end|>\n<|im_start|>assistant\n`
+        ] = `<|im_start|>system\n${systemPrompt}\n<|im_end|>\n<|im_start|>user\n${assistantPrompt}\n${userPrompt}\n<|im_end|>\n<|im_start|>assistant\n`
         body['stop'] = ['<|im_end|>']
     } else if (settings.provider === 'ChatGPT') {
-        let stop = false
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        let resp: any
-        await backgroundFetch(utils.defaultChatGPTAPIAuthSession, {
-            stream: false,
-            signal: query.signal,
-            onMessage: (msg) => {
-                try {
-                    resp = JSON.parse(msg)
-                } catch {
-                    stop = true
-                    query.onFinish('stop')
-                    return
-                }
-            },
-            onError: (err) => {
-                stop = true
-                // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                const resp = (err as any).response
-                if (resp) {
-                    query.onError(resp)
-                    return
-                }
-                if (typeof err === 'string') {
-                    query.onError(err)
-                    return
-                }
-                if (err instanceof Error) {
-                    query.onError(err.message)
-                    return
-                }
-                const { error } = err
-                if (error) {
-                    query.onError(error.message)
-                    return
-                }
-                query.onError(`Unknown error: ${String(err)}`)
-            },
-        })
-        if (stop) {
-            return
-        }
-        apiKey = resp.accessToken
+        let resp: Response | null = null
+        resp = await backgroundFetch(utils.defaultChatGPTAPIAuthSession, { signal: query.signal })
+        const respJson = await resp?.json()
+        apiKey = respJson.accessToken
         body = {
             action: 'next',
             messages: [
@@ -235,7 +325,7 @@ export async function translate(query: TranslateQuery) {
                     role: 'user',
                     content: {
                         content_type: 'text',
-                        parts: [systemPrompt + '\n\n' + assistantPrompt + ':\n' + `${query.text}`],
+                        parts: [systemPrompt + '\n\n' + assistantPrompt + ':\n' + `${userPrompt}`],
                     },
                 },
             ],
@@ -252,7 +342,10 @@ export async function translate(query: TranslateQuery) {
                 role: 'user',
                 content: assistantPrompt,
             },
-            { role: 'user', content: `"${query.text}"` },
+            {
+                role: 'user',
+                content: userPrompt,
+            },
         ]
     }
 
@@ -269,7 +362,9 @@ export async function translate(query: TranslateQuery) {
 
     if (settings.provider === 'ChatGPT') {
         let conversationId = ''
-        await backgroundFetch(`${utils.defaultChatGPTWebAPI}/conversation`, {
+        let length = 0
+        await fetchSSE(`${utils.defaultChatGPTWebAPI}/conversation`, {
+            fetcher: backgroundFetch,
             method: 'POST',
             headers,
             body: JSON.stringify(body),
@@ -286,40 +381,58 @@ export async function translate(query: TranslateQuery) {
                 if (!conversationId) {
                     conversationId = resp.conversation_id
                 }
-
                 const { finish_details: finishDetails } = resp.message
                 if (finishDetails) {
                     query.onFinish(finishDetails.type)
                     return
                 }
 
-                let targetTxt = ''
-
                 const { content, author } = resp.message
                 if (author.role === 'assistant') {
-                    targetTxt = content.parts.join('')
-                    query.onMessage({ content: targetTxt, role: '', isWordMode, isFullText: true })
+                    const targetTxt = content.parts.join('')
+                    let textDelta = targetTxt.slice(length)
+                    if (quoteProcessor) {
+                        textDelta = quoteProcessor.processText(textDelta)
+                    }
+                    query.onMessage({ content: textDelta, role: '', isWordMode })
+                    length = targetTxt.length
                 }
             },
             onError: (err) => {
+                if (err instanceof Error) {
+                    query.onError(err.message)
+                    return
+                }
+                if (typeof err === 'string') {
+                    query.onError(err)
+                    return
+                }
+                if (typeof err === 'object') {
+                    const { detail } = err
+                    if (detail) {
+                        query.onError(detail)
+                        return
+                    }
+                }
                 const { error } = err
-                query.onError(error.message)
+                if (error instanceof Error) {
+                    query.onError(error.message)
+                    return
+                }
+                query.onError('Unknown error')
             },
         })
+
         if (conversationId) {
             await backgroundFetch(`${utils.defaultChatGPTWebAPI}/conversation/${conversationId}`, {
-                stream: false,
                 method: 'PATCH',
                 headers,
                 body: JSON.stringify({ is_visible: false }),
-                // eslint-disable-next-line @typescript-eslint/no-empty-function
-                onMessage: () => {},
-                // eslint-disable-next-line @typescript-eslint/no-empty-function
-                onError: () => {},
             })
         }
     } else {
-        await fetchSSE(`${settings.apiURL}${settings.apiURLPath}`, {
+        const url = urlJoin(settings.apiURL, settings.apiURLPath)
+        await fetchSSE(url, {
             method: 'POST',
             headers,
             body: JSON.stringify(body),
@@ -349,17 +462,38 @@ export async function translate(query: TranslateQuery) {
                     // It's used for Azure OpenAI Service's legacy parameters.
                     targetTxt = choices[0].text
 
+                    if (quoteProcessor) {
+                        targetTxt = quoteProcessor.processText(targetTxt)
+                    }
+
                     query.onMessage({ content: targetTxt, role: '', isWordMode })
                 } else {
                     const { content = '', role } = choices[0].delta
+
                     targetTxt = content
+
+                    if (quoteProcessor) {
+                        targetTxt = quoteProcessor.processText(targetTxt)
+                    }
 
                     query.onMessage({ content: targetTxt, role, isWordMode })
                 }
             },
             onError: (err) => {
+                if (err instanceof Error) {
+                    query.onError(err.message)
+                    return
+                }
+                if (typeof err === 'string') {
+                    query.onError(err)
+                    return
+                }
                 const { error } = err
-                query.onError(error.message)
+                if (error instanceof Error) {
+                    query.onError(error.message)
+                    return
+                }
+                query.onError('Unknown error')
             },
         })
     }
