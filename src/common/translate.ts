@@ -3,7 +3,7 @@ import * as utils from '../common/utils'
 import { backgroundFetch } from '../common/background-fetch'
 import * as lang from './lang'
 import { fetchSSE } from './utils'
-import urlJoin from 'url-join'
+import { urlJoin } from 'url-join-ts'
 import { v4 as uuidv4 } from 'uuid'
 
 export type TranslateMode = 'translate' | 'polishing' | 'summarize' | 'analyze' | 'explain-code' | 'big-bang'
@@ -37,33 +37,39 @@ export interface TranslateResult {
     error?: string
 }
 
-export const isAWord = (lang: string, text: string) => {
+export const isAWord = (langCode: string, text: string) => {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const Segmenter = (Intl as any).Segmenter
     if (!Segmenter) {
         return false
     }
-    const segmenter = new Segmenter(lang, { granularity: 'word' })
+    const segmenter = new Segmenter(langCode, { granularity: 'word' })
     const iterator = segmenter.segment(text)[Symbol.iterator]()
     return iterator.next().value?.segment === text
 }
 
-class QuoteProcessor {
+export class QuoteProcessor {
     private quote: string
     public quoteStart: string
     public quoteEnd: string
-    private quoteStartBuffer: string
-    private quoteEndBuffer: string
+    private prevQuoteStartBuffer: string
+    private prevQuoteEndBuffer: string
 
     constructor() {
         this.quote = uuidv4().replace(/-/g, '').slice(0, 4)
         this.quoteStart = `<${this.quote}>`
         this.quoteEnd = `</${this.quote}>`
-        this.quoteStartBuffer = ''
-        this.quoteEndBuffer = ''
+        this.prevQuoteStartBuffer = ''
+        this.prevQuoteEndBuffer = ''
     }
 
-    public processText(textDelta: string): string {
+    public processText(text: string): string {
+        const deltas = text.split('')
+        const targetPieces = deltas.map((delta) => this.processTextDelta(delta))
+        return targetPieces.join('')
+    }
+
+    private processTextDelta(textDelta: string): string {
         if (textDelta === '') {
             return ''
         }
@@ -72,7 +78,7 @@ class QuoteProcessor {
         }
         let result = textDelta
         // process quote start
-        let quoteStartBuffer = this.quoteStartBuffer
+        let quoteStartBuffer = this.prevQuoteStartBuffer
         // console.debug('\n\n')
         // console.debug('---- process quote start -----')
         // console.debug('textDelta', textDelta)
@@ -81,24 +87,24 @@ class QuoteProcessor {
         let startIdx = 0
         for (let i = 0; i < textDelta.length; i++) {
             const char = textDelta[i]
-            // console.debug(`---- i: ${i} ----`)
+            // console.debug(`---- i: ${i} startIdx: ${startIdx} ----`)
             // console.debug('char', char)
             // console.debug('quoteStartBuffer', quoteStartBuffer)
             // console.debug('result', result)
             if (char === this.quoteStart[quoteStartBuffer.length]) {
-                if (this.quoteStartBuffer.length > 0) {
+                if (this.prevQuoteStartBuffer.length > 0) {
                     if (i === startIdx) {
                         quoteStartBuffer += char
                         result = textDelta.slice(i + 1)
                         startIdx += 1
                     } else {
-                        result = this.quoteStartBuffer + textDelta
+                        result = this.prevQuoteStartBuffer + textDelta
                         quoteStartBuffer = ''
                         break
                     }
                 } else {
                     quoteStartBuffer += char
-                    result = textDelta.slice(0, textDelta.length - quoteStartBuffer.length)
+                    result = textDelta.slice(i + 1)
                 }
             } else {
                 if (quoteStartBuffer.length === this.quoteStart.length) {
@@ -106,20 +112,20 @@ class QuoteProcessor {
                     break
                 }
                 if (quoteStartBuffer.length > 0) {
-                    result = this.quoteStartBuffer + textDelta
+                    result = this.prevQuoteStartBuffer + textDelta
                     quoteStartBuffer = ''
                     break
                 }
             }
         }
         // console.debug('end loop!')
-        this.quoteStartBuffer = quoteStartBuffer
+        this.prevQuoteStartBuffer = quoteStartBuffer
         // console.debug('result', result)
         // console.debug('this.quoteStartBuffer', this.quoteStartBuffer)
         // console.debug('---- end of process quote start -----')
         textDelta = result
         // process quote end
-        let quoteEndBuffer = this.quoteEndBuffer
+        let quoteEndBuffer = this.prevQuoteEndBuffer
         // console.debug('\n\n')
         // console.debug('---- start process quote end -----')
         console.debug('textDelta', textDelta)
@@ -133,13 +139,13 @@ class QuoteProcessor {
             console.debug('quoteEndBuffer', quoteEndBuffer)
             console.debug('result', result)
             if (char === this.quoteEnd[quoteEndBuffer.length]) {
-                if (this.quoteEndBuffer.length > 0) {
+                if (this.prevQuoteEndBuffer.length > 0) {
                     if (i === endIdx) {
                         quoteEndBuffer += char
                         result = textDelta.slice(i + 1)
                         endIdx += 1
                     } else {
-                        result = this.quoteEndBuffer + textDelta
+                        result = this.prevQuoteEndBuffer + textDelta
                         quoteEndBuffer = ''
                         break
                     }
@@ -153,14 +159,14 @@ class QuoteProcessor {
                     break
                 }
                 if (quoteEndBuffer.length > 0) {
-                    result = this.quoteEndBuffer + textDelta
+                    result = this.prevQuoteEndBuffer + textDelta
                     quoteEndBuffer = ''
                     break
                 }
             }
         }
         // console.debug('end loop!')
-        this.quoteEndBuffer = quoteEndBuffer
+        this.prevQuoteEndBuffer = quoteEndBuffer
         console.debug('totally result', result)
         // console.debug('this.quoteEndBuffer', this.quoteEndBuffer)
         // console.debug('---- end of process quote end -----')
@@ -168,118 +174,85 @@ class QuoteProcessor {
     }
 }
 
-const chineseLangs = ['zh-Hans', 'zh-Hant', 'wyw', 'yue']
+const chineseLangCodes = ['zh-Hans', 'zh-Hant', 'wyw', 'yue', 'jdbhw', 'xdbhw']
 
 export async function translate(query: TranslateQuery) {
+    const sourceLangCode = query.detectFrom
+    const targetLangCode = query.detectTo
+    const sourceLang = lang.getLangName(sourceLangCode)
+    const targetLang = lang.getLangName(targetLangCode)
+    console.debug('sourceLang', sourceLang)
+    console.debug('targetLang', targetLang)
     let quoteProcessor: QuoteProcessor | undefined
     const settings = await utils.getSettings()
-    const fromChinese = chineseLangs.indexOf(query.detectFrom) >= 0
-    const toChinese = chineseLangs.indexOf(query.detectTo) >= 0
-    let systemPrompt = 'You are a translation engine that can only translate text and cannot interpret it.'
-    let assistantPrompt = `Translate from ${lang.langMap.get(query.detectFrom) || query.detectFrom} to ${
-        lang.langMap.get(query.detectTo) || query.detectTo
-    }. Only the translated text can be returned.`
-    let userPrompt = query.text
+    const toChinese = chineseLangCodes.indexOf(targetLangCode) >= 0
+    let rolePrompt =
+        'You are a professional translation engine, please translate the text into a colloquial, professional, elegant and fluent content, without the style of machine translation. You must only translate the text content, never interpret it.'
+    const assistantPrompts: string[] = []
+    let commandPrompt = `Translate from ${sourceLang} to ${targetLang}. Only the translated text can be returned.`
+    let contentPrompt = query.text
 
     // a word could be collected
     let isWordMode = false
     switch (query.mode) {
         case 'translate':
             quoteProcessor = new QuoteProcessor()
-            assistantPrompt += ` Only translate the text between ${quoteProcessor.quoteStart} and ${quoteProcessor.quoteEnd}.`
-            userPrompt = `${quoteProcessor.quoteStart}${query.text}${quoteProcessor.quoteEnd} =>`
-            if (query.detectTo === 'wyw' || query.detectTo === 'yue') {
-                assistantPrompt = `请翻译成${lang.langMap.get(query.detectTo) || query.detectTo}`
+            commandPrompt += ` Only translate the text between ${quoteProcessor.quoteStart} and ${quoteProcessor.quoteEnd}.`
+            contentPrompt = `${quoteProcessor.quoteStart}${query.text}${quoteProcessor.quoteEnd} =>`
+            if (targetLangCode === 'xdbhw') {
+                rolePrompt = '您是一位在中文系研究中文的资深学者'
+                commandPrompt = `夹在${quoteProcessor.quoteStart}和${quoteProcessor.quoteEnd}之间的内容是原文，请您将原文内容翻译成《呐喊》风格的现代白话文`
+            } else if (targetLangCode === 'jdbhw') {
+                rolePrompt = '您是一位在中文系研究中文的资深学者'
+                commandPrompt = `夹在${quoteProcessor.quoteStart}和${quoteProcessor.quoteEnd}之间的内容是原文，请您将原文内容翻译成《红楼梦》风格的近代白话文`
+            } else if (query.text.length < 5 && toChinese) {
+                // 当用户的默认语言为中文时，查询中文词组（不超过5个字），展示多种翻译结果，并阐述适用语境。
+                rolePrompt = `你是一个翻译引擎，请将给到的文本翻译成${targetLang}。请列出3种（如果有）最常用翻译结果：单词或短语，并列出对应的适用语境（用中文阐述）、音标、词性、双语示例。按照下面格式用中文阐述：
+                    <序号><单词或短语> · /<音标>
+                    [<词性缩写>] <适用语境（用中文阐述）>
+                    例句：<例句>(例句翻译)`
+                commandPrompt = ''
             }
-            if (fromChinese) {
-                if (query.detectTo === 'zh-Hant') {
-                    assistantPrompt = '翻譯成台灣常用用法之繁體中文白話文'
-                } else if (query.detectTo === 'zh-Hans') {
-                    assistantPrompt = '翻译成简体白话文'
-                } else if (query.text.length < 5 && toChinese) {
-                    // 当用户的默认语言为中文时，查询中文词组（不超过5个字），展示多种翻译结果，并阐述适用语境。
-                    systemPrompt = `你是一个翻译引擎，请将给到的文本翻译成${
-                        lang.langMap.get(query.detectTo) || query.detectTo
-                    }。请列出3种（如果有）最常用翻译结果：单词或短语，并列出对应的适用语境（用中文阐述）、音标、词性、双语示例。按照下面格式用中文阐述：
-                        <序号><单词或短语> · /<音标>
-                        [<词性缩写>] <适用语境（用中文阐述）>
-                        例句：<例句>(例句翻译)`
-                    assistantPrompt = ''
-                }
-            }
-            if (toChinese && isAWord(query.detectFrom, query.text.trim())) {
+            if (toChinese && isAWord(sourceLangCode, query.text.trim())) {
                 isWordMode = true
                 // 翻译为中文时，增加单词模式，可以更详细的翻译结果，包括：音标、词性、含义、双语示例。
-                systemPrompt = `你是一个翻译引擎，请将翻译给到的文本，只需要翻译不需要解释。当且仅当文本只有一个单词时，请给出单词原始形态（如果有）、单词的语种、对应的音标（如果有）、所有含义（含词性）、双语示例，至少三条例句，请严格按照下面格式给到翻译结果：
+                rolePrompt = `你是一个翻译引擎，请将翻译给到的文本，只需要翻译不需要解释。当且仅当文本只有一个单词时，请给出单词原始形态（如果有）、单词的语种、对应的音标（如果有）、所有含义（含词性）、双语示例，至少三条例句，请严格按照下面格式给到翻译结果：
                 <单词>
                 [<语种>] · / <单词音标>
                 [<词性缩写>] <中文含义>]
                 例句：
                 <序号><例句>(例句翻译)`
-                userPrompt = `单词是：${query.text}`
+                commandPrompt = '好的，我明白了，请给我这个单词。'
+                contentPrompt = `单词是：${query.text}`
             }
             if (query.selectedWord) {
-                // 在选择的句子中，选择特定的单词。触发语境学习功能。
-                systemPrompt = `你是一位${
-                    lang.langMap.get(query.detectFrom) || query.detectFrom
-                }词义语法专家，你在教我${lang.langMap.get(query.detectFrom) || query.detectFrom}，我给你一句${
-                    lang.langMap.get(query.detectFrom) || query.detectFrom
-                }句子，和这个句子中的一个单词，请用${
-                    lang.langMap.get(query.detectTo) || query.detectTo
-                }帮我解释一下，这个单词在句子中的意思和句子本身的意思,如果单词在这个句子中是习话的一部分，请解释这句句子中的习话，并举几个相同意思的${
-                    lang.langMap.get(query.detectFrom) || query.detectFrom
-                }例句,并用${
-                    lang.langMap.get(query.detectTo) || query.detectTo
-                }解释例句。如果你明白了请说同意，然后我们开始。`
-                assistantPrompt = '好的，我明白了，请给我这个句子和单词。'
-                userPrompt = `句子是：${query.text}\n单词是：${query.selectedWord}`
+                rolePrompt = `You are an expert in the semantic syntax of the ${sourceLang} language and you are teaching me the ${sourceLang} language. I give you a sentence in ${sourceLang} and a word in that sentence. Please help me explain in ${targetLang} language what the word means in the sentence and what the sentence itself means, and if the word is part of an idiom in the sentence, explain the idiom in the sentence and give a few examples in ${sourceLang} with the same meaning and explain the examples in ${targetLang} language, and must in ${targetLang} language. If you understand, say yes, and then we will begin.`
+                commandPrompt = 'yes, I understand, please give me the sentence and the word.'
+                contentPrompt = `the sentence is: ${query.text}\n\nthe word is: ${query.selectedWord}`
             }
             break
         case 'polishing':
-            systemPrompt = 'Revise the following sentences to make them more clear, concise, and coherent.'
-            if (fromChinese) {
-                assistantPrompt = `使用 ${lang.langMap.get(query.detectFrom) || query.detectFrom} 语言润色此段文本`
-            } else {
-                assistantPrompt = `polish this text in ${lang.langMap.get(query.detectFrom) || query.detectFrom}`
-            }
+            rolePrompt =
+                'You are an expert translator, please revise the following sentences to make them more clear, concise, and coherent.'
+            commandPrompt = `polish this text in ${sourceLang}`
             break
         case 'summarize':
-            systemPrompt = "You are a text summarizer, you can only summarize the text, don't interpret it."
-            if (toChinese) {
-                assistantPrompt = '用最简洁的语言使用中文总结此段文本'
-            } else {
-                assistantPrompt = `summarize this text in the most concise language and must use ${
-                    lang.langMap.get(query.detectTo) || query.detectTo
-                } language!`
-            }
+            rolePrompt = "You are a professional text summarizer, you can only summarize the text, don't interpret it."
+            commandPrompt = `summarize this text in the most concise language and must use ${targetLang} language!`
             break
         case 'analyze':
-            systemPrompt = 'You are a translation engine and grammar analyzer.'
-            if (toChinese) {
-                assistantPrompt = `请用中文翻译此段文本并解析原文中的语法`
-            } else {
-                assistantPrompt = `translate this text to ${
-                    lang.langMap.get(query.detectTo) || query.detectTo
-                } and explain the grammar in the original text using ${
-                    lang.langMap.get(query.detectTo) || query.detectTo
-                }`
-            }
+            rolePrompt = 'You are a professional translation engine and grammar analyzer.'
+            commandPrompt = `translate this text to ${targetLang} and explain the grammar in the original text using ${targetLang}`
             break
         case 'explain-code':
-            systemPrompt =
+            rolePrompt =
                 'You are a code explanation engine, you can only explain the code, do not interpret or translate it. Also, please report any bugs you find in the code to the author of the code.'
-            if (toChinese) {
-                assistantPrompt =
-                    '用最简洁的语言使用中文解释此段代码、正则表达式或脚本。如果内容不是代码，请返回错误提示。如果代码有明显的错误，请指出。'
-            } else {
-                assistantPrompt = `explain the provided code, regex or script in the most concise language and must use ${
-                    lang.langMap.get(query.detectTo) || query.detectTo
-                } language! If the content is not code, return an error message. If the code has obvious errors, point them out.`
-            }
+            commandPrompt = `explain the provided code, regex or script in the most concise language and must use ${targetLang} language! If the content is not code, return an error message. If the code has obvious errors, point them out.`
+            contentPrompt = '```\n' + query.text + '\n```'
             break
         case 'big-bang':
-            systemPrompt = `You are a professional writer and you will write ${query.articlePrompt} based on the given words`
-            assistantPrompt = `Write ${query.articlePrompt} of no more than 160 words. The article must contain the words in the following text. The more words you use, the better`
+            rolePrompt = `You are a professional writer and you will write ${query.articlePrompt} based on the given words`
+            commandPrompt = `Write ${query.articlePrompt} of no more than 160 words. The article must contain the words in the following text. The more words you use, the better`
             break
     }
 
@@ -310,7 +283,7 @@ export async function translate(query: TranslateQuery) {
         isChatAPI = false
         body[
             'prompt'
-        ] = `<|im_start|>system\n${systemPrompt}\n<|im_end|>\n<|im_start|>user\n${assistantPrompt}\n${userPrompt}\n<|im_end|>\n<|im_start|>assistant\n`
+        ] = `<|im_start|>system\n${rolePrompt}\n<|im_end|>\n<|im_start|>user\n${commandPrompt}\n${contentPrompt}\n<|im_end|>\n<|im_start|>assistant\n`
         body['stop'] = ['<|im_end|>']
     } else if (settings.provider === 'ChatGPT') {
         let resp: Response | null = null
@@ -325,7 +298,7 @@ export async function translate(query: TranslateQuery) {
                     role: 'user',
                     content: {
                         content_type: 'text',
-                        parts: [systemPrompt + '\n\n' + assistantPrompt + ':\n' + `${userPrompt}`],
+                        parts: [rolePrompt + '\n\n' + commandPrompt + ':\n' + `${contentPrompt}`],
                     },
                 },
             ],
@@ -333,20 +306,27 @@ export async function translate(query: TranslateQuery) {
             parent_message_id: utils.generateUUID(),
         }
     } else {
-        body['messages'] = [
+        const messages = [
             {
                 role: 'system',
-                content: systemPrompt,
+                content: rolePrompt,
+            },
+            ...assistantPrompts.map((prompt) => {
+                return {
+                    role: 'user',
+                    content: prompt,
+                }
+            }),
+            {
+                role: 'user',
+                content: commandPrompt,
             },
             {
                 role: 'user',
-                content: assistantPrompt,
-            },
-            {
-                role: 'user',
-                content: userPrompt,
+                content: contentPrompt,
             },
         ]
+        body['messages'] = messages
     }
 
     switch (settings.provider) {
@@ -419,6 +399,13 @@ export async function translate(query: TranslateQuery) {
                     query.onError(error.message)
                     return
                 }
+                if (typeof error === 'object') {
+                    const { message } = error
+                    if (message) {
+                        query.onError(message)
+                        return
+                    }
+                }
                 query.onError('Unknown error')
             },
         })
@@ -488,10 +475,24 @@ export async function translate(query: TranslateQuery) {
                     query.onError(err)
                     return
                 }
+                if (typeof err === 'object') {
+                    const { detail } = err
+                    if (detail) {
+                        query.onError(detail)
+                        return
+                    }
+                }
                 const { error } = err
                 if (error instanceof Error) {
                     query.onError(error.message)
                     return
+                }
+                if (typeof error === 'object') {
+                    const { message } = error
+                    if (message) {
+                        query.onError(message)
+                        return
+                    }
                 }
                 query.onError('Unknown error')
             },

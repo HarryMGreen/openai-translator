@@ -5,61 +5,73 @@ import { Client as Styletron } from 'styletron-engine-atomic'
 import { Provider as StyletronProvider } from 'styletron-react'
 import { BaseProvider, Theme } from 'baseui-sd'
 import { Textarea } from 'baseui-sd/textarea'
-import icon from './assets/images/icon.png'
 import { createUseStyles } from 'react-jss'
 import { AiOutlineTranslation, AiOutlineFileSync } from 'react-icons/ai'
 import { IoSettingsOutline, IoColorPaletteOutline } from 'react-icons/io5'
 import { TbArrowsExchange, TbCsv } from 'react-icons/tb'
 import { MdOutlineSummarize, MdOutlineAnalytics, MdCode, MdOutlineGrade, MdGrade } from 'react-icons/md'
 import { StatefulTooltip } from 'baseui-sd/tooltip'
-import { detectLang, supportLanguages } from './lang'
-import { translate, TranslateMode } from './translate'
+import { detectLang, supportLanguages } from '../lang'
+import { translate, TranslateMode } from '../translate'
 import { Select, Value, Option } from 'baseui-sd/select'
 import { CopyToClipboard } from 'react-copy-to-clipboard'
 import { RxCopy, RxEraser, RxReload, RxSpeakerLoud } from 'react-icons/rx'
-import { calculateMaxXY, queryPopupCardElement } from './utils'
+import { calculateMaxXY, queryPopupCardElement } from '../../browser-extension/content_script/utils'
 import { clsx } from 'clsx'
 import { Button } from 'baseui-sd/button'
 import { ErrorBoundary } from 'react-error-boundary'
 import { ErrorFallback } from '../components/ErrorFallback'
-import { defaultAPIURL, exportToCsv, isDesktopApp, isFirefox, isTauri } from '../common/utils'
-import { Settings } from '../popup/Settings'
-import { documentPadding } from './consts'
+import { defaultAPIURL, exportToCsv, getSettings, isDesktopApp, isTauri } from '../utils'
+import { Settings } from './Settings'
+import { documentPadding } from '../../browser-extension/content_script/consts'
 import Dropzone from 'react-dropzone'
 import { RecognizeResult, createWorker } from 'tesseract.js'
 import { BsTextareaT } from 'react-icons/bs'
 import { FcIdea } from 'react-icons/fc'
-import rocket from './assets/images/rocket.gif'
-import partyPopper from './assets/images/party-popper.gif'
+import icon from '../assets/images/icon.png'
+import rocket from '../assets/images/rocket.gif'
+import partyPopper from '../assets/images/party-popper.gif'
 import { Event } from '@tauri-apps/api/event'
 import SpeakerMotion from '../components/SpeakerMotion'
 import IpLocationNotification from '../components/IpLocationNotification'
-import { HighlightInTextarea } from '../common/highlight-in-textarea'
+import { HighlightInTextarea } from '../highlight-in-textarea'
 import LRUCache from 'lru-cache'
-import { ISettings, IThemedStyleProps } from '../common/types'
-import { useTheme } from '../common/hooks/useTheme'
-import { speak } from '../common/tts'
-import { Tooltip } from '../components/Tooltip'
-import { useSettings } from '../common/hooks/useSettings'
+import { ISettings, IThemedStyleProps } from '../types'
+import { useTheme } from '../hooks/useTheme'
+import { speak } from '../tts'
+import { Tooltip } from './Tooltip'
+import { useSettings } from '../hooks/useSettings'
 import Vocabulary from './Vocabulary'
-import { LocalDB, VocabularyItem } from '../common/db'
-import { useCollectedWordTotal } from '../common/hooks/useCollectedWordTotal'
+import { LocalDB, VocabularyItem } from '../db'
+import { useCollectedWordTotal } from '../hooks/useCollectedWordTotal'
 import { Modal } from 'baseui-sd/modal'
 import * as Sentry from '@sentry/react'
 import ReactGA from 'react-ga4'
 
-!isFirefox &&
-    Sentry.init({
-        dsn: 'https://477519542bd6491cb347ca3f55fcdce6@o441417.ingest.sentry.io/4505051776090112',
-        integrations: [new Sentry.BrowserTracing(), new Sentry.Replay()],
-        // Performance Monitoring
-        tracesSampleRate: 0.5, // Capture 100% of the transactions, reduce in production!
-        // Session Replay
-        replaysSessionSampleRate: 0.1, // This sets the sample rate at 10%. You may want to change it to 100% while in development and then sample at a lower rate in production.
-        replaysOnErrorSampleRate: 1.0, // If you're not already sampling the entire session, change the sample rate to 100% when sampling sessions where errors occur.
-    })
+let isAnalysisSetupped = false
 
-ReactGA.initialize('G-D7054DX333')
+async function setupAnalysis() {
+    if (isAnalysisSetupped) {
+        return
+    }
+    isAnalysisSetupped = true
+    const settings = await getSettings()
+    if (settings.disableCollectingStatistics) {
+        return
+    }
+    if (isDesktopApp()) {
+        Sentry.init({
+            dsn: 'https://477519542bd6491cb347ca3f55fcdce6@o441417.ingest.sentry.io/4505051776090112',
+            integrations: [new Sentry.BrowserTracing(), new Sentry.Replay()],
+            // Performance Monitoring
+            tracesSampleRate: 0.5, // Capture 100% of the transactions, reduce in production!
+            // Session Replay
+            replaysSessionSampleRate: 0.1, // This sets the sample rate at 10%. You may want to change it to 100% while in development and then sample at a lower rate in production.
+            replaysOnErrorSampleRate: 1.0, // If you're not already sampling the entire session, change the sample rate to 100% when sampling sessions where errors occur.
+        })
+    }
+    ReactGA.initialize('G-D7054DX333')
+}
 
 const cache = new LRUCache({
     max: 500,
@@ -405,7 +417,11 @@ export interface MovementXY {
     y: number
 }
 
-export function PopupCard(props: IPopupCardProps) {
+export function Translator(props: IPopupCardProps) {
+    useEffect(() => {
+        setupAnalysis()
+    }, [])
+
     const [translationFlag, forceTranslate] = useReducer((x: number) => x + 1, 0)
 
     const editorRef = useRef<HTMLTextAreaElement>(null)
