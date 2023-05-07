@@ -29,7 +29,7 @@ import { RiDeleteBin5Line } from 'react-icons/ri'
 import { IoMdAdd } from 'react-icons/io'
 import { TTSProvider } from '../tts/types'
 import { getEdgeVoices } from '../tts/edge-tts'
-import { backgroundFetch } from '../background-fetch'
+import { backgroundFetch } from '../background/fetch'
 
 const langOptions: Value = supportLanguages.reduce((acc, [id, label]) => {
     return [
@@ -1043,7 +1043,13 @@ export function Settings(props: IPopupProps) {
                         <FormItem name='ocrHotkey' label={t('OCR Hotkey')}>
                             <HotkeyRecorder onBlur={onBlur} />
                         </FormItem>
-                        <FormItem name='disableCollectingStatistics' label={t('disable collecting statistics')}>
+                        <FormItem
+                            style={{
+                                display: isDesktopApp ? 'block' : 'none',
+                            }}
+                            name='disableCollectingStatistics'
+                            label={t('disable collecting statistics')}
+                        >
                             <MyCheckbox onBlur={onBlur} />
                         </FormItem>
                         <div
