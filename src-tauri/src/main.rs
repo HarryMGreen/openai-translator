@@ -15,6 +15,7 @@ mod windows;
 use cocoa::appkit::NSWindow;
 use parking_lot::Mutex;
 use std::env;
+use std::path::Path;
 use std::sync::atomic::{AtomicBool, Ordering};
 use sysinfo::{CpuExt, System, SystemExt};
 use tauri_plugin_autostart::MacosLauncher;
@@ -23,15 +24,16 @@ use crate::config::{clear_config_cache, get_config_content};
 use crate::lang::detect_lang;
 use crate::ocr::ocr;
 use crate::windows::{
-    get_main_window_always_on_top, set_main_window_always_on_top,
+    get_main_window_always_on_top, set_main_window_always_on_top, show_action_manager_window,
     show_main_window_with_selected_text, MAIN_WIN_NAME,
 };
 
 use mouce::Mouse;
 use once_cell::sync::OnceCell;
 use tauri::api::notification::Notification;
-use tauri::{Manager, PhysicalPosition, PhysicalSize};
 use tauri::{AppHandle, LogicalPosition, LogicalSize};
+use tauri::{Manager, PhysicalPosition, PhysicalSize};
+use tiny_http::{Header, Response as HttpResponse, Server};
 use window_shadows::set_shadow;
 
 pub static APP_HANDLE: OnceCell<AppHandle> = OnceCell::new();
@@ -65,6 +67,20 @@ fn query_accessibility_permissions() -> bool {
     return true;
 }
 
+#[inline]
+fn launch_ipc_server(server: &Server) {
+    for mut req in server.incoming_requests() {
+        let mut selected_text = String::new();
+        req.as_reader().read_to_string(&mut selected_text).unwrap();
+        utils::send_text(selected_text);
+        let window = windows::show_main_window(false, false);
+        window.set_focus().unwrap();
+        utils::show();
+        let response = HttpResponse::from_string("ok");
+        req.respond(response).unwrap();
+    }
+}
+
 fn main() {
     let silently = env::args().any(|arg| arg == "--silently");
 
@@ -75,16 +91,16 @@ fn main() {
     }
 
     let hook_result = mouse_manager.hook(Box::new(|event| {
-        let config = config::get_config().unwrap();
-        let always_show_icons = config.always_show_icons.unwrap_or(true);
-        if !always_show_icons {
-            return;
-        }
         if cfg!(target_os = "linux") {
             return;
         }
         match event {
             mouce::common::MouseEvent::Press(mouce::common::MouseButton::Left) => {
+                let config = config::get_config().unwrap();
+                let always_show_icons = config.always_show_icons.unwrap_or(true);
+                if !always_show_icons {
+                    return;
+                }
                 let current_press_time = std::time::SystemTime::now()
                     .duration_since(std::time::UNIX_EPOCH)
                     .unwrap()
@@ -92,6 +108,12 @@ fn main() {
                 *PREVIOUS_PRESS_TIME.lock() = current_press_time;
             }
             mouce::common::MouseEvent::Release(mouce::common::MouseButton::Left) => {
+                let config = config::get_config().unwrap();
+                let always_show_icons = config.always_show_icons.unwrap_or(true);
+                if !always_show_icons {
+                    windows::delete_thumb();
+                    return;
+                }
                 let current_release_time = std::time::SystemTime::now()
                     .duration_since(std::time::UNIX_EPOCH)
                     .unwrap()
@@ -144,8 +166,7 @@ fn main() {
                                         let res = x >= x1 && x <= x2 && y >= y1 && y <= y2;
                                         res
                                     } else {
-                                        let PhysicalPosition { x: x1, y: y1 } =
-                                            position;
+                                        let PhysicalPosition { x: x1, y: y1 } = position;
                                         let PhysicalSize {
                                             width: mut w,
                                             height: mut h,
@@ -259,13 +280,13 @@ fn main() {
         ))
         // .plugin(tauri_plugin_window_state::Builder::default().build())
         .setup(move |app| {
+            let app_handle = app.handle();
+            APP_HANDLE.get_or_init(|| app.handle());
             if silently {
                 let window = app.get_window(MAIN_WIN_NAME).unwrap();
                 window.unminimize().unwrap();
                 window.hide().unwrap();
             }
-            let app_handle = app.handle();
-            APP_HANDLE.get_or_init(|| app.handle());
             if cfg!(target_os = "windows") || cfg!(target_os = "linux") {
                 let window = app.get_window(MAIN_WIN_NAME).unwrap();
                 window.set_decorations(false)?;
@@ -291,13 +312,27 @@ fn main() {
                     NSWindow::setAllowsAutomaticWindowTabbing_(ns_window, cocoa::base::NO);
                 }
             }
-            windows::show_thumb(-100, -100);
+            std::thread::spawn(move || {
+                #[cfg(target_os = "windows")]
+                {
+                    let server = Server::http("127.0.0.1:62007").unwrap();
+                    launch_ipc_server(&server);
+                }
+                #[cfg(not(target_os = "windows"))]
+                {
+                    let path = Path::new("/tmp/openai-translator.sock");
+                    std::fs::remove_file(path).unwrap_or_default();
+                    let server = Server::http_unix(path).unwrap();
+                    launch_ipc_server(&server);
+                }
+            });
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
             get_config_content,
             clear_config_cache,
             show_main_window_with_selected_text,
+            show_action_manager_window,
             get_main_window_always_on_top,
             set_main_window_always_on_top,
             ocr,
@@ -314,6 +349,10 @@ fn main() {
                 ..
             } = event
             {
+                if label != MAIN_WIN_NAME {
+                    return;
+                }
+
                 #[cfg(target_os = "macos")]
                 {
                     tauri::AppHandle::hide(&app.app_handle()).unwrap();

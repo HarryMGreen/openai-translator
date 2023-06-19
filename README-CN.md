@@ -138,6 +138,14 @@ scoop install openai-translator
       <img width="600" src="https://user-images.githubusercontent.com/1206493/224536277-4200f58e-8dc0-4c01-a27a-a30d7d8dc69e.gif" />
     </p>
 
+## 安装桌面端划词扩展
+
+详情请见 [桌面端划词扩展](./CLIP-EXTENSIONS-CN.md)
+
+  <p align="center">
+    <img width="600" src="https://user-images.githubusercontent.com/1206493/240355949-8f41d98d-f097-4ce4-a533-af60e1757ca1.gif" />
+  </p>
+
 ## 浏览器插件
 
 1. 访问你使用的浏览器的插件市场安装此插件：
@@ -159,25 +167,26 @@ scoop install openai-translator
 
 3. 刷新浏览器页面，即可享受丝滑般的划词翻译体验 🎉
 
+## 配置 Azure OpenAI Service
+
+```ts
+const API_URL = `https://${resourceName}.openai.azure.com`
+const API_URL_PATH = `/openai/deployments/${deployName}/completions?api-version=${apiVersion}`
+```
+
+- resourceName: 你的 Azure OpenAI Service 资源名称。
+- deployName: 你的 Azure OpenAI Service 模型部署名称，更改部署名称以切换模型。
+- api-version: 2023-05-15，或者更新的版本。
+
 # License
 
 [LICENSE](./LICENSE)
 
 # 群组
 
-<p align="center">
-  <a target="_blank" href="https://t.me/+QoVo0d840BVlYzY1">加入 Telegram 群组 (中文)</a>
-</p>
-<p align="center">
-  <img height="260" src="https://user-images.githubusercontent.com/1206493/236804161-fe86b7a8-7f29-4ea1-8e1e-e33ea6807234.jpeg" />
-</p>
-
-<p align="center">
-  <a target="_blank" href="https://t.me/+E0ev56MAUFFjOGQ1">Join the Telegram Group (English)</a>
-</p>
-<p align="center">
-  <img height="260" src="https://user-images.githubusercontent.com/1206493/236804890-34557624-69c7-41c3-8731-6c5d720b07fa.jpeg" />
-</p>
+| <a target="_blank" href="https://t.me/+QoVo0d840BVlYzY1">加入 Telegram 群组 (中文)</a> | <a target="_blank" href="https://t.me/+E0ev56MAUFFjOGQ1">Join the Telegram Group (English)</a> |
+| ------------- | ------------- |
+| <img height="260" src="https://user-images.githubusercontent.com/1206493/236804161-fe86b7a8-7f29-4ea1-8e1e-e33ea6807234.jpeg" /> | <img height="260" src="https://user-images.githubusercontent.com/1206493/236804890-34557624-69c7-41c3-8731-6c5d720b07fa.jpeg" /> |
 
 # Star 历史
 

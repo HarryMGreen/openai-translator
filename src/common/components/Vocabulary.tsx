@@ -62,12 +62,20 @@ const useStyles = createUseStyles({
         color: props.themeType === 'dark' ? props.theme.colors.contentSecondary : props.theme.colors.contentPrimary,
     }),
     'articleDisplay': {
-        marginTop: '16px',
-        display: 'flex',
-        padding: '0 10px 10px',
-        flexDirection: 'column',
-        overflowY: 'auto',
-        overflowX: 'hidden',
+        'marginTop': '16px',
+        'display': 'flex',
+        'padding': '0 10px 10px',
+        'flexDirection': 'column',
+        'overflowY': 'auto',
+        'overflowX': 'hidden',
+        '-ms-user-select': 'text',
+        '-webkit-user-select': 'text',
+        'user-select': 'text',
+        '& *': {
+            '-ms-user-select': 'text',
+            '-webkit-user-select': 'text',
+            'user-select': 'text',
+        },
     },
     'diceArea': {
         position: 'absolute',
@@ -200,7 +208,7 @@ const Vocabulary = (props: IVocabularyProps) => {
 
     useEffect(() => {
         checkCollection()
-    }, [selectedWord?.word])
+    }, [checkCollection])
 
     const onRandomWords = async () => {
         try {
@@ -222,7 +230,7 @@ const Vocabulary = (props: IVocabularyProps) => {
                 const wordInfo = await vocabularyService.getItem(selectedWord?.word ?? '')
                 await vocabularyService.deleteItem(wordInfo?.word ?? '')
                 setIsCollectedWord(false)
-                setCollectedWordTotal((prev) => prev - 1)
+                setCollectedWordTotal((prev: number) => prev - 1)
             } else {
                 const wordInfo = words.find((item) => item.word === selectedWord?.word)
                 if (wordInfo) {
@@ -261,10 +269,7 @@ const Vocabulary = (props: IVocabularyProps) => {
                 mode: 'big-bang',
                 signal,
                 text: str,
-                selectedWord: '',
-                detectFrom: '',
-                detectTo: '',
-                articlePrompt: prompt,
+                articlePrompt: prompt || '',
                 onMessage: (message) => {
                     if (message.role) {
                         return

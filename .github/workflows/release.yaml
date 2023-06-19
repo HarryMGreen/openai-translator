@@ -12,6 +12,7 @@ jobs:
     outputs:
       release_id: ${{ steps.create-release.outputs.id }}
       release_upload_url: ${{ steps.create-release.outputs.upload_url }}
+      release_body: "${{ steps.tag.outputs.message }}"
 
     steps:
       - uses: actions/checkout@v3
@@ -37,8 +38,51 @@ jobs:
           tag: ${{ steps.get_version.outputs.version }}
           body: "${{ steps.tag.outputs.message }}"
 
-  build-tauri:
+  build-tauri-renderer:
     needs: create-release
+    permissions:
+      contents: write
+      packages: write
+    runs-on: ubuntu-20.04
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Get version
+        id: get_version
+        uses: battila7/get-version-action@v2
+
+      - uses: pnpm/action-setup@v2
+        with:
+          version: 8.6.0
+
+      - name: setup node
+        uses: actions/setup-node@v3
+        with:
+          node-version: 18
+          cache: 'pnpm'
+
+      - name: install frontend dependencies
+        run: pnpm install # change this to npm or pnpm depending on which one you use
+
+      - name: Change Version
+        env:
+          VERSION: "${{ steps.get_version.outputs.version-without-v }}"
+        run: make change-version
+
+      - uses: oNaiPs/secrets-to-env-action@v1
+        with:
+          secrets: ${{ toJSON(secrets) }}
+
+      - name: build tauri renderer
+        run: pnpm build-tauri-renderer
+
+      - uses: actions/upload-artifact@v3
+        with:
+          name: tauri-renderer
+          path: dist/tauri/
+
+  build-tauri:
+    needs: [create-release, build-tauri-renderer]
     permissions:
       contents: write
       packages: write
@@ -67,10 +111,18 @@ jobs:
         id: get_version
         uses: battila7/get-version-action@v2
 
+      - uses: pnpm/action-setup@v2
+        with:
+          version: 8.6.0
+
       - name: setup node
         uses: actions/setup-node@v3
         with:
-          node-version: 16
+          node-version: 18
+          cache: 'pnpm'
+
+      - name: install frontend dependencies
+        run: pnpm install # change this to npm or pnpm depending on which one you use
 
       - name: install Rust stable
         uses: dtolnay/rust-toolchain@stable
@@ -94,18 +146,15 @@ jobs:
         run: |
           rustup target add aarch64-apple-darwin
 
-      - uses: actions/cache@v2
-        with:
-          path: '**/node_modules'
-          key: ${{ runner.os }}-node-modules-${{ hashFiles('**/yarn.lock') }}
-
-      - name: install frontend dependencies
-        run: yarn install # change this to npm or pnpm depending on which one you use
-
       - name: Change Version
         env:
           VERSION: "${{ steps.get_version.outputs.version-without-v }}"
         run: make change-version
+
+      - uses: actions/download-artifact@v3
+        with:
+          name: tauri-renderer
+          path: dist/tauri
 
       - uses: oNaiPs/secrets-to-env-action@v1
         with:
@@ -118,6 +167,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           releaseId: ${{ needs.create-release.outputs.release_id }}
+          releaseBody: ${{ needs.create-release.outputs.release_body }}
 
       - name: Build Tauri App (macOS aarch64)
         uses: tauri-apps/tauri-action@dev
@@ -126,9 +176,10 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           releaseId: ${{ needs.create-release.outputs.release_id }}
+          releaseBody: ${{ needs.create-release.outputs.release_body }}
           args: --target aarch64-apple-darwin
 
-  #build-browser-extension:
+  #build-clip-extension:
   #  runs-on: ubuntu-22.04
 
   #  permissions:
@@ -139,26 +190,70 @@ jobs:
 
   #  steps:
   #    - uses: actions/checkout@v3
-  #    - uses: actions/setup-node@v3
-  #      with:
-  #        node-version: 18
 
   #    - name: Get version
   #      id: get_version
   #      uses: battila7/get-version-action@v2
 
-  #    - uses: actions/cache@v2
-  #      with:
-  #        path: '**/node_modules'
-  #        key: ${{ runner.os }}-node-modules-${{ hashFiles('**/yarn.lock') }}
+  #    - name: Build PopClip extension
+  #      run: make build-popclip-extension
 
-  #    - name: Install dependencies
-  #      run: yarn install
-
-  #    - name: Build
-  #      run: make build
+  #    - name: Upload PopClip extension to release
+  #      uses: actions/upload-release-asset@v1
   #      env:
-  #        VERSION: "${{ steps.get_version.outputs.version-without-v }}"
+  #        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+  #      with:
+  #        upload_url: ${{ needs.create-release.outputs.release_upload_url }}
+  #        asset_path: dist/openai-translator.popclipextz
+  #        asset_name: openai-translator.popclipextz
+  #        asset_content_type: application/zip
+
+  #    - name: Build SnipDo extension
+  #      run: make build-snipdo-extension
+
+  #    - name: Upload SnipDo extension to release
+  #      uses: actions/upload-release-asset@v1
+  #      env:
+  #        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+  #      with:
+  #        upload_url: ${{ needs.create-release.outputs.release_upload_url }}
+  #        asset_path: dist/openai-translator.pbar
+  #        asset_name: openai-translator.pbar
+  #        asset_content_type: application/zip
+
+  #build-browser-extension:
+  #  runs-on: ubuntu-22.04
+
+  #  permissions:
+  #    contents: write
+  #    packages: write
+
+  #  needs: create-release
+
+    #steps:
+    #  - uses: actions/checkout@v3
+
+    #  - uses: pnpm/action-setup@v2
+    #    with:
+    #      version: 8.6.0
+
+    #  - name: setup node
+    #    uses: actions/setup-node@v3
+    #    with:
+    #      node-version: 18
+    #      cache: 'pnpm'
+
+  #    - name: Get version
+  #      id: get_version
+  #      uses: battila7/get-version-action@v2
+
+      #- name: Install dependencies
+      #  run: pnpm install
+
+      #- name: Build
+      #  run: make build-browser-extension
+      #  env:
+      #    VERSION: "${{ steps.get_version.outputs.version-without-v }}"
 
   #    - name: Package plugin and create userscript
   #      run: |

@@ -1,9 +1,8 @@
 {
   "$schema": "../node_modules/@tauri-apps/cli/schema.json",
   "build": {
-    "beforeBuildCommand": "yarn build-tauri-renderer",
-    "beforeDevCommand": "yarn dev-tauri-renderer",
-    "devPath": "http://localhost:3000",
+    "beforeDevCommand": "pnpm dev-tauri-renderer",
+    "devPath": "http://localhost:3333",
     "distDir": "../dist/tauri",
     "withGlobalTauri": true
   },
@@ -38,7 +37,7 @@
       },
       "fs": {
         "all": false,
-        "scope": ["**"],
+        "scope": ["**", "$CONFIG/*/**"],
         "writeFile": true,
         "readFile": true,
         "readDir": true
@@ -101,10 +100,11 @@
     },
     "windows": [
       {
+        "url": "src/tauri/index.html",
         "fullscreen": false,
+        "width": 620,
         "height": 700,
-        "width": 600,
-        "minWidth": 450,
+        "minWidth": 540,
         "minHeight": 600,
         "resizable": true,
         "title": "OpenAI Translator",

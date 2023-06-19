@@ -14,7 +14,7 @@ export const defaultChatGPTWebAPI = 'https://chat.openai.com/backend-api'
 
 export const defaultAutoTranslate = false
 export const defaultTargetLanguage = 'zh-Hans'
-export const defaultAlwaysShowIcons = true
+export const defaultAlwaysShowIcons = false
 export const defaultSelectInputElementsText = true
 export const defaulti18n = 'en'
 
@@ -88,6 +88,9 @@ export async function getSettings(): Promise<ISettings> {
     if (settings.selectInputElementsText === undefined || settings.selectInputElementsText === null) {
         settings.selectInputElementsText = defaultSelectInputElementsText
     }
+    if (!settings.themeType) {
+        settings.themeType = 'followTheSystem'
+    }
     return settings
 }
 
@@ -106,7 +109,7 @@ export async function getBrowser(): Promise<IBrowser> {
     if (isUserscript()) {
         return (await import('./polyfills/userscript')).userscriptBrowser
     }
-    return await require('webextension-polyfill')
+    return (await import('webextension-polyfill')).default
 }
 
 export const isElectron = () => {
@@ -138,6 +141,16 @@ export const isDarkMode = async () => {
 }
 
 export const isFirefox = () => /firefox/i.test(navigator.userAgent)
+
+export const isUsingOpenAIOfficialAPIEndpoint = async () => {
+    const settings = await getSettings()
+    return settings.provider === defaultProvider && settings.apiURL === defaultAPIURL
+}
+
+export const isUsingOpenAIOfficial = async () => {
+    const settings = await getSettings()
+    return settings.provider === 'ChatGPT' || (await isUsingOpenAIOfficialAPIEndpoint())
+}
 
 // source: https://stackoverflow.com/questions/105034/how-do-i-create-a-guid-uuid#answer-8809472
 export function generateUUID() {
@@ -209,13 +222,15 @@ interface FetchSSEOptions extends RequestInit {
     onMessage(data: string): void
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     onError(error: any): void
+    onStatusCode?: (statusCode: number) => void
     fetcher?: (input: string, options: RequestInit) => Promise<Response>
 }
 
 export async function fetchSSE(input: string, options: FetchSSEOptions) {
-    const { onMessage, onError, fetcher = getUniversalFetch(), ...fetchOptions } = options
+    const { onMessage, onError, onStatusCode, fetcher = getUniversalFetch(), ...fetchOptions } = options
 
     const resp = await fetcher(input, fetchOptions)
+    onStatusCode?.(resp.status)
     if (resp.status !== 200) {
         onError(await resp.json())
         return
@@ -226,7 +241,8 @@ export async function fetchSSE(input: string, options: FetchSSEOptions) {
             onMessage(event.data)
         }
     })
-    const reader = resp.body.getReader()
+    // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
+    const reader = resp.body!.getReader()
     try {
         // eslint-disable-next-line no-constant-condition
         while (true) {

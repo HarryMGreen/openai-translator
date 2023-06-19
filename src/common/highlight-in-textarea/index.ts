@@ -1,4 +1,5 @@
-import styles from 'inline:./index.css'
+/* eslint-disable @typescript-eslint/no-explicit-any */
+import styles from './index.css?inline'
 
 interface IConfig {
     highlight: string | RegExp | string[]
@@ -344,7 +345,7 @@ export class HighlightInTextarea {
 
         // replace start tokens with opening <mark> tags with class name
         input = input.replace(/{{hit-mark-start\|(\d+)}}/g, (_match, subMatch) => {
-            const className = boundaries[+subMatch].className
+            const { className } = boundaries[+subMatch]
             if (className) {
                 return '<mark class="' + className + '">'
             } else {

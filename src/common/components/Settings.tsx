@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import _ from 'underscore'
 import icon from '../assets/images/icon-large.png'
 import beams from '../assets/images/beams.jpg'
@@ -9,12 +9,11 @@ import { Provider as StyletronProvider } from 'styletron-react'
 import { BaseProvider } from 'baseui-sd'
 import { Input } from 'baseui-sd/input'
 import { createForm } from './Form'
-import formStyles from 'inline:./Form/index.module.css'
 import { Button } from 'baseui-sd/button'
 import { TranslateMode, Provider, APIModel } from '../translate'
 import { Select, Value, Option } from 'baseui-sd/select'
 import { Checkbox } from 'baseui-sd/checkbox'
-import { supportLanguages } from '../lang'
+import { supportedLanguages } from './lang/lang'
 import { useRecordHotkeys } from 'react-hotkeys-hook'
 import { createUseStyles } from 'react-jss'
 import clsx from 'clsx'
@@ -29,10 +28,14 @@ import { RiDeleteBin5Line } from 'react-icons/ri'
 import { IoMdAdd } from 'react-icons/io'
 import { TTSProvider } from '../tts/types'
 import { getEdgeVoices } from '../tts/edge-tts'
-import { backgroundFetch } from '../background/fetch'
 import { useThemeType } from '../hooks/useThemeType'
+import { Slider } from 'baseui-sd/slider'
+import { getUniversalFetch } from '../universal-fetch'
+import { useLiveQuery } from 'dexie-react-hooks'
+import { actionService } from '../services/action'
+import { GlobalSuspense } from './GlobalSuspense'
 
-const langOptions: Value = supportLanguages.reduce((acc, [id, label]) => {
+const langOptions: Value = supportedLanguages.reduce((acc, [id, label]) => {
     return [
         ...acc,
         {
@@ -48,9 +51,7 @@ interface ILanguageSelectorProps {
     onBlur?: () => void
 }
 
-function LanguageSelector(props: ILanguageSelectorProps) {
-    const { value, onChange, onBlur } = props
-
+function LanguageSelector({ value, onChange, onBlur }: ILanguageSelectorProps) {
     return (
         <Select
             onBlur={onBlur}
@@ -78,14 +79,14 @@ interface AlwaysShowIconsCheckboxProps {
     onBlur?: () => void
 }
 
-function AlwaysShowIconsCheckbox(props: AlwaysShowIconsCheckboxProps) {
+function AlwaysShowIconsCheckbox({ value, onChange, onBlur }: AlwaysShowIconsCheckboxProps) {
     return (
         <Checkbox
             checkmarkType='toggle_round'
-            checked={props.value}
+            checked={value}
             onChange={(e) => {
-                props.onChange?.(e.target.checked)
-                props.onBlur?.()
+                onChange?.(e.target.checked)
+                onBlur?.()
             }}
         />
     )
@@ -102,36 +103,36 @@ interface IProviderSelectorProps {
     onChange?: (value: Provider | 'OpenAI') => void
 }
 
-function TranslateModeSelector(props: ITranslateModeSelectorProps) {
+function TranslateModeSelector({ value, onChange, onBlur }: ITranslateModeSelectorProps) {
+    const actions = useLiveQuery(() => actionService.list())
     const { t } = useTranslation()
 
     return (
         <Select
             size='compact'
-            onBlur={props.onBlur}
+            onBlur={onBlur}
             searchable={false}
             clearable={false}
             value={
-                props.value && [
+                value && [
                     {
-                        id: props.value,
+                        id: value,
                     },
                 ]
             }
             onChange={(params) => {
-                props.onChange?.(params.value[0].id as TranslateMode | 'nop')
+                onChange?.(params.value[0].id as TranslateMode | 'nop')
             }}
             options={
                 [
-                    { label: t('Translate'), id: 'translate' },
-                    { label: t('Polishing'), id: 'polishing' },
-                    { label: t('Summarize'), id: 'summarize' },
-                    { label: t('Analyze'), id: 'analyze' },
-                    { label: t('Explain Code'), id: 'explain-code' },
                     { label: t('Nop'), id: 'nop' },
+                    ...(actions?.map((item) => ({
+                        label: item.mode ? t(item.name) : item.name,
+                        id: item.mode ? item.mode : String(item.id),
+                    })) ?? []),
                 ] as {
                     label: string
-                    id: TranslateMode
+                    id: string
                 }[]
             }
         />
@@ -144,26 +145,26 @@ interface IThemeTypeSelectorProps {
     onBlur?: () => void
 }
 
-function ThemeTypeSelector(props: IThemeTypeSelectorProps) {
+function ThemeTypeSelector({ value, onChange, onBlur }: IThemeTypeSelectorProps) {
     const { t } = useTranslation()
 
     return (
         <Select
             size='compact'
-            onBlur={props.onBlur}
+            onBlur={onBlur}
             searchable={false}
             clearable={false}
             value={
-                props.value
+                value
                     ? [
                           {
-                              id: props.value,
+                              id: value,
                           },
                       ]
                     : []
             }
             onChange={(params) => {
-                props.onChange?.(params.value[0].id as ThemeType)
+                onChange?.(params.value[0].id as ThemeType)
             }}
             options={[
                 { label: t('Follow the System'), id: 'followTheSystem' },
@@ -192,6 +193,14 @@ const useTTSSettingsStyles = createUseStyles({
     formControl: {
         marginBottom: '12px',
     },
+    tickBar: (props: IThemedStyleProps) => ({
+        color: props.theme.colors.contentPrimary,
+        display: 'flex',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        paddingRight: '16px',
+        paddingLeft: '16px',
+    }),
 })
 
 interface TTSVoicesSettingsProps {
@@ -208,7 +217,8 @@ const ttsProviderOptions: {
     { label: 'System Default', id: 'WebSpeech' },
 ]
 
-function TTSVoicesSettings(props: TTSVoicesSettingsProps) {
+function TTSVoicesSettings({ value, onChange, onBlur }: TTSVoicesSettingsProps) {
+    const { t } = useTranslation()
     const { theme, themeType } = useTheme()
 
     const styles = useTTSSettingsStyles({ theme, themeType, isDesktopApp: utils.isDesktopApp() })
@@ -219,7 +229,7 @@ function TTSVoicesSettings(props: TTSVoicesSettingsProps) {
 
     useEffect(() => {
         ;(async () => {
-            switch (props.value?.provider ?? 'WebSpeech') {
+            switch (value?.provider ?? 'WebSpeech') {
                 case 'EdgeTTS':
                     setSupportVoices(await getEdgeVoices())
                     break
@@ -231,14 +241,14 @@ function TTSVoicesSettings(props: TTSVoicesSettingsProps) {
                     break
             }
         })()
-    }, [props.value?.provider])
+    }, [value?.provider])
 
     const getLangOptions = useCallback(
         (lang: string) => {
-            return supportLanguages.reduce((acc, [langCode, label]) => {
+            return supportedLanguages.reduce((acc, [langCode, label]) => {
                 const ttsLang = langCode2TTSLang[langCode]
                 if (ttsLang && supportVoices.find((v) => v.lang === ttsLang)) {
-                    if (props.value?.voices?.find((item) => item.lang === langCode) && langCode !== lang) {
+                    if (value?.voices?.find((item) => item.lang === langCode) && langCode !== lang) {
                         return acc
                     }
                     return [
@@ -252,7 +262,7 @@ function TTSVoicesSettings(props: TTSVoicesSettingsProps) {
                 return acc
             }, [] as Value)
         },
-        [props.value, supportVoices]
+        [value?.voices, supportVoices]
     )
 
     const getVoiceOptions = useCallback(
@@ -262,23 +272,24 @@ function TTSVoicesSettings(props: TTSVoicesSettingsProps) {
                 .filter((v) => v.lang === ttsLang)
                 .map((sv) => ({ id: sv.voiceURI, label: sv.name, lang: sv.lang }))
         },
-        [props.value, supportVoices]
+        [supportVoices]
     )
 
     const handleDeleteLang = useCallback(
         (lang: string) => {
-            const voices = props.value?.voices ?? []
+            const voices = value?.voices ?? []
             const newVoices = voices.filter((item) => {
                 return item.lang !== lang
             })
-            props.onChange?.({ ...props.value, voices: newVoices })
+            onChange?.({ ...value, voices: newVoices })
         },
-        [props.value]
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+        [value]
     )
 
     const handleChangeLang = useCallback(
         (prevLang: string, newLang: string) => {
-            const voices = props.value?.voices ?? []
+            const voices = value?.voices ?? []
             const newVoices = voices.map((item) => {
                 if (item.lang === prevLang) {
                     return {
@@ -288,16 +299,17 @@ function TTSVoicesSettings(props: TTSVoicesSettingsProps) {
                 }
                 return item
             })
-            props.onChange?.({ ...props.value, voices: newVoices })
+            onChange?.({ ...value, voices: newVoices })
         },
-        [props.value]
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+        [value]
     )
 
     const handleAddLang = useCallback(
         (lang: string) => {
-            const voices = props.value?.voices ?? []
-            props.onChange?.({
-                ...props.value,
+            const voices = value?.voices ?? []
+            onChange?.({
+                ...value,
                 voices: [
                     ...voices,
                     {
@@ -308,12 +320,13 @@ function TTSVoicesSettings(props: TTSVoicesSettingsProps) {
             })
             setShowLangSelector(false)
         },
-        [props.value]
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+        [value]
     )
 
     const handleChangeVoice = useCallback(
         (lang: string, voice: string) => {
-            const voices = props.value?.voices ?? []
+            const voices = value?.voices ?? []
             const newVoices = voices.map((item) => {
                 if (item.lang === lang) {
                     return {
@@ -323,34 +336,79 @@ function TTSVoicesSettings(props: TTSVoicesSettingsProps) {
                 }
                 return item
             })
-            props.onChange?.({ ...props.value, voices: newVoices })
+            onChange?.({ ...value, voices: newVoices })
         },
-        [props.value]
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+        [value]
     )
 
-    const handleChangeProvider = (provider: TTSProvider) => {
-        props.onChange?.({ ...props.value, provider })
-    }
+    const handleChangeProvider = useCallback(
+        (provider: TTSProvider) => {
+            onChange?.({ ...value, provider })
+        },
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+        [value]
+    )
 
     return (
         <div>
             <div className={styles.formControl}>
-                <label className={styles.settingsLabel}>Provider</label>
+                <label className={styles.settingsLabel}>{t('Provider')}</label>
                 <div className={styles.providerSelector}>
                     <Select
                         size='compact'
                         clearable={false}
                         searchable={false}
                         options={ttsProviderOptions}
-                        value={[{ id: props.value?.provider ?? 'WebSpeech' }]}
+                        value={[{ id: value?.provider ?? 'EdgeTTS' }]}
                         onChange={({ option }) => handleChangeProvider(option?.id as TTSProvider)}
-                        onBlur={props.onBlur}
+                        onBlur={onBlur}
                     />
                 </div>
             </div>
             <div className={styles.formControl}>
-                <label className={styles.settingsLabel}>Voice</label>
-                {(props.value?.voices ?? []).map(({ lang, voice }) => (
+                <label className={styles.settingsLabel}>{t('Rate')}</label>
+                <Slider
+                    min={1}
+                    max={20}
+                    step={1}
+                    value={[value?.rate ?? 10]}
+                    onChange={({ value }) => onChange?.({ ...value, rate: value[0] })}
+                    overrides={{
+                        ThumbValue: () => null,
+                        InnerThumb: () => null,
+                        TickBar: () => (
+                            <div className={styles.tickBar}>
+                                <div>{t('Slow')}</div>
+                                <div>{t('Fast')}</div>
+                            </div>
+                        ),
+                    }}
+                />
+            </div>
+            <div className={styles.formControl}>
+                <label className={styles.settingsLabel}>{t('Volume')}</label>
+                <Slider
+                    min={0}
+                    max={100}
+                    step={1}
+                    value={[value?.volume ?? 100]}
+                    onChange={({ value }) => onChange?.({ ...value, volume: value[0] })}
+                    overrides={{
+                        ThumbValue: () => null,
+                        InnerThumb: () => null,
+                        TickBar: () => (
+                            <div className={styles.tickBar}>
+                                <div>{t('Quiet')}</div>
+                                <div>{t('Loud')}</div>
+                            </div>
+                        ),
+                    }}
+                />
+            </div>
+            <div className={styles.formControl}>
+                <label className={styles.settingsLabel}>{t('Voice')}</label>
+                {(value?.voices ?? []).map(({ lang, voice }) => (
                     <div className={styles.voiceSelector} key={lang}>
                         <Select
                             size='compact'
@@ -365,7 +423,7 @@ function TTSVoicesSettings(props: TTSVoicesSettingsProps) {
                             value={[{ id: voice }]}
                             onChange={({ option }) => handleChangeVoice(lang, option?.id as string)}
                             clearable={false}
-                            onBlur={props.onBlur}
+                            onBlur={onBlur}
                         />
                         <Button
                             shape='circle'
@@ -412,7 +470,7 @@ function TTSVoicesSettings(props: TTSVoicesSettingsProps) {
                             setShowLangSelector(true)
                         }}
                     >
-                        Add
+                        {t('Add')}
                     </Button>
                 </div>
             </div>
@@ -426,7 +484,7 @@ interface Ii18nSelectorProps {
     onBlur?: () => void
 }
 
-function Ii18nSelector(props: Ii18nSelectorProps) {
+function Ii18nSelector({ value, onChange, onBlur }: Ii18nSelectorProps) {
     const { i18n } = useTranslation()
 
     const options = [
@@ -440,21 +498,21 @@ function Ii18nSelector(props: Ii18nSelectorProps) {
     return (
         <Select
             size='compact'
-            onBlur={props.onBlur}
+            onBlur={onBlur}
             searchable={false}
             clearable={false}
             value={
-                props.value
+                value
                     ? [
                           {
-                              id: props.value,
-                              label: options.find((option) => option.id === props.value)?.label || 'en',
+                              id: value,
+                              label: options.find((option) => option.id === value)?.label || 'en',
                           },
                       ]
                     : undefined
             }
             onChange={(params) => {
-                props.onChange?.(params.value[0].id as string)
+                onChange?.(params.value[0].id as string)
                 // eslint-disable-next-line @typescript-eslint/no-explicit-any
                 ;(i18n as any).changeLanguage(params.value[0].id as string)
             }}
@@ -475,10 +533,18 @@ interface APIModelOption {
     id: string
 }
 
-function APIModelSelector(props: APIModelSelectorProps) {
+function APIModelSelector({ provider, value, onChange, onBlur }: APIModelSelectorProps) {
+    const fetcher = useMemo(() => getUniversalFetch(), [])
+    const { t } = useTranslation()
+    const [isLoading, setIsLoading] = useState(false)
     const [options, setOptions] = useState<APIModelOption[]>([])
+    const [errMsg, setErrMsg] = useState<string>()
+    const [isChatGPTNotLogin, setIsChatGPTNotLogin] = useState(false)
     useEffect(() => {
-        if (props.provider === 'OpenAI') {
+        setIsChatGPTNotLogin(false)
+        setErrMsg('')
+        setOptions([])
+        if (provider === 'OpenAI') {
             setOptions([
                 { label: 'gpt-3.5-turbo', id: 'gpt-3.5-turbo' },
                 { label: 'gpt-3.5-turbo-0301', id: 'gpt-3.5-turbo-0301' },
@@ -487,51 +553,99 @@ function APIModelSelector(props: APIModelSelectorProps) {
                 { label: 'gpt-4-32k', id: 'gpt-4-32k' },
                 { label: 'gpt-4-32k-0314', id: 'gpt-4-32k-0314' },
             ])
-        } else if (props.provider === 'ChatGPT') {
-            backgroundFetch(utils.defaultChatGPTAPIAuthSession, { cache: 'no-cache' })
-                .then((response) => response.json())
-                .then((resp) => {
-                    const headers: Record<string, string> = {
-                        Authorization: `Bearer ${resp.accessToken}`,
+        } else if (provider === 'ChatGPT') {
+            setIsLoading(true)
+            try {
+                ;(async () => {
+                    const sessionResp = await fetcher(utils.defaultChatGPTAPIAuthSession, { cache: 'no-cache' })
+                    if (sessionResp.status !== 200) {
+                        setIsChatGPTNotLogin(true)
+                        setErrMsg('Failed to fetch ChatGPT Web accessToken')
+                        return
                     }
-                    return backgroundFetch(`${utils.defaultChatGPTWebAPI}/models`, {
+                    const sessionRespJsn = await sessionResp.json()
+                    const headers: Record<string, string> = {
+                        Authorization: `Bearer ${sessionRespJsn.accessToken}`,
+                    }
+                    const modelsResp = await fetcher(`${utils.defaultChatGPTWebAPI}/models`, {
                         cache: 'no-cache',
                         headers,
-                    }).then((response) => response.json())
-                })
-                .then((models) => {
-                    if (!models || !models.models) {
+                    })
+                    const modelsRespJsn = await modelsResp.json()
+                    if (!modelsRespJsn) {
+                        return
+                    }
+                    if (modelsResp.status !== 200) {
+                        if (modelsResp.status === 401) {
+                            setIsChatGPTNotLogin(true)
+                        }
+                        setErrMsg(modelsRespJsn.detail.message)
+                        return
+                    }
+                    const { models } = modelsRespJsn
+                    if (!models) {
                         return
                     }
                     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                    setOptions(models.models.map((model: any) => ({ label: model.title, id: model.slug })))
-                })
-                .catch((e) => {
-                    console.error(e)
-                })
+                    setOptions(models.map((model: any) => ({ label: model.title, id: model.slug })))
+                })()
+                // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            } catch (e: any) {
+                setErrMsg(JSON.stringify(e))
+            } finally {
+                setIsLoading(false)
+            }
         }
-    }, [props.provider])
+    }, [fetcher, provider])
 
     return (
-        <Select
-            size='compact'
-            onBlur={props.onBlur}
-            searchable={false}
-            clearable={false}
-            value={
-                props.value
-                    ? [
-                          {
-                              id: props.value,
-                          },
-                      ]
-                    : undefined
-            }
-            onChange={(params) => {
-                props.onChange?.(params.value[0].id as APIModel)
-            }}
-            options={options}
-        />
+        <div>
+            <Select
+                isLoading={isLoading}
+                size='compact'
+                onBlur={onBlur}
+                searchable={false}
+                clearable={false}
+                value={
+                    value
+                        ? [
+                              {
+                                  id: value,
+                              },
+                          ]
+                        : undefined
+                }
+                onChange={(params) => {
+                    onChange?.(params.value[0].id as APIModel)
+                }}
+                options={options}
+            />
+            <div
+                style={{
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: 4,
+                }}
+            >
+                {errMsg && (
+                    <div
+                        style={{
+                            color: 'red',
+                        }}
+                    >
+                        {errMsg}
+                    </div>
+                )}
+                {isChatGPTNotLogin && (
+                    <div>
+                        <span>{t('Please login to ChatGPT Web')}: </span>
+                        <a href='https://chat.openai.com' target='_blank' rel='noreferrer'>
+                            Login
+                        </a>
+                    </div>
+                )}
+            </div>
+        </div>
     )
 }
 
@@ -541,14 +655,14 @@ interface AutoTranslateCheckboxProps {
     onBlur?: () => void
 }
 
-function AutoTranslateCheckbox(props: AutoTranslateCheckboxProps) {
+function AutoTranslateCheckbox({ value, onChange, onBlur }: AutoTranslateCheckboxProps) {
     return (
         <Checkbox
             checkmarkType='toggle_round'
-            checked={props.value}
+            checked={value}
             onChange={(e) => {
-                props.onChange?.(e.target.checked)
-                props.onBlur?.()
+                onChange?.(e.target.checked)
+                onBlur?.()
             }}
         />
     )
@@ -560,14 +674,14 @@ interface MyCheckboxProps {
     onBlur?: () => void
 }
 
-function MyCheckbox(props: MyCheckboxProps) {
+function MyCheckbox({ value, onChange, onBlur }: MyCheckboxProps) {
     return (
         <Checkbox
             checkmarkType='toggle_round'
-            checked={props.value}
+            checked={value}
             onChange={(e) => {
-                props.onChange?.(e.target.checked)
-                props.onBlur?.()
+                onChange?.(e.target.checked)
+                onBlur?.()
             }}
         />
     )
@@ -579,14 +693,14 @@ interface RestorePreviousPositionCheckboxProps {
     onBlur?: () => void
 }
 
-function RestorePreviousPositionCheckbox(props: RestorePreviousPositionCheckboxProps) {
+function RestorePreviousPositionCheckbox({ value, onChange, onBlur }: RestorePreviousPositionCheckboxProps) {
     return (
         <Checkbox
             checkmarkType='toggle_round'
-            checked={props.value}
+            checked={value}
             onChange={(e) => {
-                props.onChange?.(e.target.checked)
-                props.onBlur?.()
+                onChange?.(e.target.checked)
+                onBlur?.()
             }}
         />
     )
@@ -597,14 +711,14 @@ interface SelectInputElementsProps {
     onBlur?: () => void
 }
 
-function SelectInputElementsCheckbox(props: SelectInputElementsProps) {
+function SelectInputElementsCheckbox({ value, onChange, onBlur }: SelectInputElementsProps) {
     return (
         <Checkbox
             checkmarkType='toggle_round'
-            checked={props.value}
+            checked={value}
             onChange={(e) => {
-                props.onChange?.(e.target.checked)
-                props.onBlur?.()
+                onChange?.(e.target.checked)
+                onBlur?.()
             }}
         />
     )
@@ -615,14 +729,14 @@ interface RunAtStartupCheckboxProps {
     onBlur?: () => void
 }
 
-function RunAtStartupCheckbox(props: RunAtStartupCheckboxProps) {
+function RunAtStartupCheckbox({ value, onChange, onBlur }: RunAtStartupCheckboxProps) {
     return (
         <Checkbox
             checkmarkType='toggle_round'
-            checked={props.value}
+            checked={value}
             onChange={(e) => {
-                props.onChange?.(e.target.checked)
-                props.onBlur?.()
+                onChange?.(e.target.checked)
+                onBlur?.()
             }}
         />
     )
@@ -674,7 +788,7 @@ interface IHotkeyRecorderProps {
     onBlur?: () => void
 }
 
-function HotkeyRecorder(props: IHotkeyRecorderProps) {
+function HotkeyRecorder({ value, onChange, onBlur }: IHotkeyRecorderProps) {
     const { theme, themeType } = useTheme()
 
     const { t } = useTranslation()
@@ -684,47 +798,49 @@ function HotkeyRecorder(props: IHotkeyRecorderProps) {
 
     const [hotKeys, setHotKeys] = useState<string[]>([])
     useEffect(() => {
-        if (props.value) {
+        if (value) {
             setHotKeys(
-                props.value
+                value
                     .replace(/-/g, '+')
                     .split('+')
                     .map((k) => k.trim())
                     .filter(Boolean)
             )
         }
-    }, [props.value])
+    }, [value])
 
     useEffect(() => {
         let keys_ = Array.from(keys)
         if (keys_ && keys_.length > 0) {
             keys_ = keys_.filter((k) => k.toLowerCase() !== 'meta')
             setHotKeys(keys_)
-            props.onChange?.(keys_.join('+'))
+            onChange?.(keys_.join('+'))
         }
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [keys])
 
     useEffect(() => {
         if (!isRecording) {
-            props.onChange?.(hotKeys.join('+'))
+            onChange?.(hotKeys.join('+'))
         }
-    }, [isRecording])
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [hotKeys, isRecording])
 
     useEffect(() => {
         const stopRecording = () => {
             if (isRecording) {
                 stop()
-                props.onBlur?.()
+                onBlur?.()
             }
         }
         document.addEventListener('click', stopRecording)
         return () => {
             document.removeEventListener('click', stopRecording)
         }
-    }, [isRecording, props.onBlur])
+    }, [isRecording, onBlur, stop])
 
     function clearHotkey() {
-        props.onChange?.('')
+        onChange?.('')
         setHotKeys([])
     }
 
@@ -748,7 +864,7 @@ function HotkeyRecorder(props: IHotkeyRecorderProps) {
                 {!isRecording && hotKeys.length > 0 ? (
                     <IoCloseCircle
                         className={styles.clearHotkey}
-                        onClick={(e) => {
+                        onClick={(e: React.MouseEvent<SVGElement>) => {
                             e.stopPropagation()
                             clearHotkey()
                         }}
@@ -762,7 +878,7 @@ function HotkeyRecorder(props: IHotkeyRecorderProps) {
     )
 }
 
-function ProviderSelector(props: IProviderSelectorProps) {
+function ProviderSelector({ value, onChange }: IProviderSelectorProps) {
     const options = utils.isDesktopApp()
         ? ([
               { label: 'OpenAI', id: 'OpenAI' },
@@ -786,14 +902,14 @@ function ProviderSelector(props: IProviderSelectorProps) {
             searchable={false}
             clearable={false}
             value={
-                props.value && [
+                value && [
                     {
-                        id: props.value,
+                        id: value,
                     },
                 ]
             }
             onChange={(params) => {
-                props.onChange?.(params.value[0].id as Provider | 'OpenAI')
+                onChange?.(params.value[0].id as Provider | 'OpenAI')
             }}
             options={options}
         />
@@ -810,18 +926,20 @@ interface ISettingsProps extends IInnerSettingsProps {
     engine: Styletron
 }
 
-export function Settings(props: ISettingsProps) {
+export function Settings({ engine, ...props }: ISettingsProps) {
     const { theme } = useTheme()
     return (
-        <StyletronProvider value={props.engine}>
+        <StyletronProvider value={engine}>
             <BaseProvider theme={theme}>
-                <InnerSettings {...props} />
+                <GlobalSuspense>
+                    <InnerSettings {...props} />
+                </GlobalSuspense>
             </BaseProvider>
         </StyletronProvider>
     )
 }
 
-export function InnerSettings(props: IInnerSettingsProps) {
+export function InnerSettings({ onSave }: IInnerSettingsProps) {
     const { theme } = useTheme()
 
     const { setThemeType } = useThemeType()
@@ -860,59 +978,62 @@ export function InnerSettings(props: IInnerSettingsProps) {
         if (settings) {
             ;(async () => {
                 if (isTauri) {
-                    const { isEnabled: autostartIsEnabled } = await require('tauri-plugin-autostart-api')
+                    const { isEnabled: autostartIsEnabled } = await import('tauri-plugin-autostart-api')
                     settings.runAtStartup = await autostartIsEnabled()
                 }
                 setValues(settings)
                 setPrevValues(settings)
             })()
         }
-    }, [settings])
+    }, [isTauri, settings])
 
     const onChange = useCallback((_changes: Partial<ISettings>, values_: ISettings) => {
         setValues(values_)
     }, [])
 
-    const onSubmit = useCallback(async (data: ISettings) => {
-        if (data.themeType) {
-            setThemeType(data.themeType)
-        }
-        setLoading(true)
-        const oldSettings = await utils.getSettings()
-        if (isTauri) {
-            try {
-                const {
-                    enable: autostartEnable,
-                    disable: autostartDisable,
-                    isEnabled: autostartIsEnabled,
-                } = await require('tauri-plugin-autostart-api')
-                if (data.runAtStartup) {
-                    await autostartEnable()
-                } else {
-                    await autostartDisable()
-                }
-                data.runAtStartup = await autostartIsEnabled()
-            } catch (e) {
-                console.log('err', e)
+    const onSubmit = useCallback(
+        async (data: ISettings) => {
+            if (data.themeType) {
+                setThemeType(data.themeType)
             }
-        }
-        await utils.setSettings(data)
+            setLoading(true)
+            const oldSettings = await utils.getSettings()
+            if (isTauri) {
+                try {
+                    const {
+                        enable: autostartEnable,
+                        disable: autostartDisable,
+                        isEnabled: autostartIsEnabled,
+                    } = await import('tauri-plugin-autostart-api')
+                    if (data.runAtStartup) {
+                        await autostartEnable()
+                    } else {
+                        await autostartDisable()
+                    }
+                    data.runAtStartup = await autostartIsEnabled()
+                } catch (e) {
+                    console.log('err', e)
+                }
+            }
+            await utils.setSettings(data)
 
-        toast(t('Saved'), {
-            icon: '👍',
-            duration: 3000,
-        })
-        setLoading(false)
-        setSettings(data)
-        props.onSave?.(oldSettings)
-    }, [])
+            toast(t('Saved'), {
+                icon: '👍',
+                duration: 3000,
+            })
+            setLoading(false)
+            setSettings(data)
+            onSave?.(oldSettings)
+        },
+        [isTauri, onSave, setSettings, setThemeType, t]
+    )
 
     const onBlur = useCallback(async () => {
         if (values.apiKeys && !_.isEqual(values, prevValues)) {
             await utils.setSettings(values)
             setPrevValues(values)
         }
-    }, [values])
+    }, [prevValues, values])
 
     const isDesktopApp = utils.isDesktopApp()
     const isMacOS = navigator.userAgent.includes('Mac OS X')
@@ -926,7 +1047,6 @@ export function InnerSettings(props: IInnerSettingsProps) {
                 minWidth: isDesktopApp ? 450 : 400,
             }}
         >
-            <style>{formStyles}</style>
             <nav
                 style={{
                     position: isDesktopApp ? 'fixed' : undefined,
@@ -941,6 +1061,7 @@ export function InnerSettings(props: IInnerSettingsProps) {
                     color: '#333',
                     background: `url(${beams}) no-repeat center center`,
                     gap: 10,
+                    boxSizing: 'border-box',
                 }}
                 data-tauri-drag-region
             >
@@ -973,7 +1094,7 @@ export function InnerSettings(props: IInnerSettingsProps) {
                 initialValues={values}
                 onValuesChange={onChange}
             >
-                <FormItem name='provider' label={t('Default Service Provider')}>
+                <FormItem name='provider' label={t('Default Service Provider')} required>
                     <ProviderSelector />
                 </FormItem>
                 {values.provider !== 'ChatGPT' && (
@@ -1011,7 +1132,7 @@ export function InnerSettings(props: IInnerSettingsProps) {
                     </FormItem>
                 )}
                 {values.provider !== 'Azure' && (
-                    <FormItem name='apiModel' label={t('API Model')}>
+                    <FormItem name='apiModel' label={t('API Model')} required>
                         <APIModelSelector provider={values.provider} onBlur={onBlur} />
                     </FormItem>
                 )}
@@ -1025,10 +1146,33 @@ export function InnerSettings(props: IInnerSettingsProps) {
                         </FormItem>
                     </>
                 )}
-                <FormItem name='defaultTranslateMode' label={t('Default Translate Mode')}>
+                <FormItem name='defaultTranslateMode' label={t('Default Action')}>
                     <TranslateModeSelector onBlur={onBlur} />
                 </FormItem>
-                <FormItem name='alwaysShowIcons' label={t('Show icon when text is selected')}>
+                <FormItem
+                    name='alwaysShowIcons'
+                    label={t('Show icon when text is selected')}
+                    caption={
+                        isDesktopApp && (
+                            <div
+                                style={{
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    gap: 6,
+                                }}
+                            >
+                                {t('It is highly recommended to disable this feature and use the Clip Extension')}
+                                <a
+                                    href='https://github.com/openai-translator/openai-translator/blob/main/CLIP-EXTENSIONS.md'
+                                    target='_blank'
+                                    rel='noreferrer'
+                                >
+                                    {t('Clip Extension')}
+                                </a>
+                            </div>
+                        )
+                    }
+                >
                     <AlwaysShowIconsCheckbox onBlur={onBlur} />
                 </FormItem>
                 <FormItem

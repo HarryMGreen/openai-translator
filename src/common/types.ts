@@ -49,7 +49,7 @@ export interface ISettings {
     apiModel: string
     provider: Provider | 'OpenAI'
     autoTranslate: boolean
-    defaultTranslateMode: TranslateMode | 'nop'
+    defaultTranslateMode: Exclude<TranslateMode, 'big-bang'> | 'nop'
     defaultTargetLanguage: string
     alwaysShowIcons: boolean
     hotkey?: string
@@ -62,6 +62,8 @@ export interface ISettings {
             voice: string
         }[]
         provider?: TTSProvider
+        volume?: number
+        rate?: number
     }
     restorePreviousPosition?: boolean
     selectInputElementsText?: boolean
