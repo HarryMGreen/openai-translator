@@ -62,7 +62,7 @@ jobs:
           cache: 'pnpm'
 
       - name: install frontend dependencies
-        run: pnpm install # change this to npm or pnpm depending on which one you use
+        run: pnpm install --no-frozen-lockfile # change this to npm or pnpm depending on which one you use
 
       - name: Change Version
         env:
@@ -122,7 +122,7 @@ jobs:
           cache: 'pnpm'
 
       - name: install frontend dependencies
-        run: pnpm install # change this to npm or pnpm depending on which one you use
+        run: pnpm install --no-frozen-lockfile # change this to npm or pnpm depending on which one you use
 
       - name: install Rust stable
         uses: dtolnay/rust-toolchain@stable
@@ -248,20 +248,25 @@ jobs:
   #      uses: battila7/get-version-action@v2
 
       #- name: Install dependencies
-      #  run: pnpm install
+      #  run: pnpm install --no-frozen-lockfile
 
-      #- name: Build
+      #- name: Build browser extension
       #  run: make build-browser-extension
       #  env:
       #    VERSION: "${{ steps.get_version.outputs.version-without-v }}"
 
-  #    - name: Package plugin and create userscript
-  #      run: |
-  #        mkdir release
-  #        mv dist/browser-extension/chromium release/openai-translator-chrome-extension-${{ steps.get_version.outputs.version-without-v }}
-  #        cp public/userscript.js release/openai-translator-${{ steps.get_version.outputs.version-without-v }}.user.js
-  #        cd release
-  #        zip -r openai-translator-chrome-extension-${{ steps.get_version.outputs.version-without-v }}.zip ./openai-translator-chrome-extension-${{ steps.get_version.outputs.version-without-v }}/*
+      #- name: Build userscript
+      #  run: make build-userscript
+      #  env:
+      #    VERSION: "${{ steps.get_version.outputs.version-without-v }}"
+
+      #- name: Package plugin and create userscript
+      #  run: |
+      #    mkdir release
+      #    mv dist/browser-extension/chromium release/openai-translator-chrome-extension-${{ steps.get_version.outputs.version-without-v }}
+      #    mv dist/openai-translator.user.js release/openai-translator-${{ steps.get_version.outputs.version-without-v }}.user.js
+      #    cd release
+      #    zip -r openai-translator-chrome-extension-${{ steps.get_version.outputs.version-without-v }}.zip ./openai-translator-chrome-extension-${{ steps.get_version.outputs.version-without-v }}/*
 
   #    - name: Upload extensions to release
   #      id: upload-release-asset

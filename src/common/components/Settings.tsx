@@ -373,7 +373,7 @@ function TTSVoicesSettings({ value, onChange, onBlur }: TTSVoicesSettingsProps) 
                     max={20}
                     step={1}
                     value={[value?.rate ?? 10]}
-                    onChange={({ value }) => onChange?.({ ...value, rate: value[0] })}
+                    onChange={(params) => onChange?.({ ...value, rate: params.value[0] })}
                     overrides={{
                         ThumbValue: () => null,
                         InnerThumb: () => null,
@@ -393,7 +393,7 @@ function TTSVoicesSettings({ value, onChange, onBlur }: TTSVoicesSettingsProps) 
                     max={100}
                     step={1}
                     value={[value?.volume ?? 100]}
-                    onChange={({ value }) => onChange?.({ ...value, volume: value[0] })}
+                    onChange={(params) => onChange?.({ ...value, volume: params.value[0] })}
                     overrides={{
                         ThumbValue: () => null,
                         InnerThumb: () => null,
@@ -533,6 +533,20 @@ interface APIModelOption {
     id: string
 }
 
+const openAIModelOptions: APIModelOption[] = [
+    { label: 'gpt-3.5-turbo', id: 'gpt-3.5-turbo' },
+    { label: 'gpt-3.5-turbo-0613', id: 'gpt-3.5-turbo-0613' },
+    { label: 'gpt-3.5-turbo-0301', id: 'gpt-3.5-turbo-0301' },
+    { label: 'gpt-3.5-turbo-16k', id: 'gpt-3.5-turbo-16k' },
+    { label: 'gpt-3.5-turbo-16k-0613', id: 'gpt-3.5-turbo-16k-0613' },
+    { label: 'gpt-4', id: 'gpt-4' },
+    { label: 'gpt-4-0314', id: 'gpt-4-0314' },
+    { label: 'gpt-4-0613', id: 'gpt-4-0613' },
+    { label: 'gpt-4-32k', id: 'gpt-4-32k' },
+    { label: 'gpt-4-32k-0314', id: 'gpt-4-32k-0314' },
+    { label: 'gpt-4-32k-0613', id: 'gpt-4-32k-0613' },
+]
+
 function APIModelSelector({ provider, value, onChange, onBlur }: APIModelSelectorProps) {
     const fetcher = useMemo(() => getUniversalFetch(), [])
     const { t } = useTranslation()
@@ -545,14 +559,7 @@ function APIModelSelector({ provider, value, onChange, onBlur }: APIModelSelecto
         setErrMsg('')
         setOptions([])
         if (provider === 'OpenAI') {
-            setOptions([
-                { label: 'gpt-3.5-turbo', id: 'gpt-3.5-turbo' },
-                { label: 'gpt-3.5-turbo-0301', id: 'gpt-3.5-turbo-0301' },
-                { label: 'gpt-4', id: 'gpt-4' },
-                { label: 'gpt-4-0314', id: 'gpt-4-0314' },
-                { label: 'gpt-4-32k', id: 'gpt-4-32k' },
-                { label: 'gpt-4-32k-0314', id: 'gpt-4-32k-0314' },
-            ])
+            setOptions(openAIModelOptions)
         } else if (provider === 'ChatGPT') {
             setIsLoading(true)
             try {
@@ -786,9 +793,10 @@ interface IHotkeyRecorderProps {
     value?: string
     onChange?: (value: string) => void
     onBlur?: () => void
+    testId?: string
 }
 
-function HotkeyRecorder({ value, onChange, onBlur }: IHotkeyRecorderProps) {
+function HotkeyRecorder({ value, onChange, onBlur, testId }: IHotkeyRecorderProps) {
     const { theme, themeType } = useTheme()
 
     const { t } = useTranslation()
@@ -856,6 +864,7 @@ function HotkeyRecorder({ value, onChange, onBlur }: IHotkeyRecorderProps) {
                         stop()
                     }
                 }}
+                data-testid={testId}
                 className={clsx(styles.hotkeyRecorder, {
                     [styles.recording]: isRecording,
                 })}
@@ -946,6 +955,8 @@ export function InnerSettings({ onSave }: IInnerSettingsProps) {
 
     const { t } = useTranslation()
 
+    const isTauri = utils.isTauri()
+
     const [loading, setLoading] = useState(false)
     const [values, setValues] = useState<ISettings>({
         apiKeys: '',
@@ -956,7 +967,7 @@ export function InnerSettings({ onSave }: IInnerSettingsProps) {
         autoTranslate: utils.defaultAutoTranslate,
         defaultTranslateMode: 'translate',
         defaultTargetLanguage: utils.defaultTargetLanguage,
-        alwaysShowIcons: utils.defaultAlwaysShowIcons,
+        alwaysShowIcons: !isTauri,
         hotkey: '',
         i18n: utils.defaulti18n,
         restorePreviousPosition: false,
@@ -972,7 +983,6 @@ export function InnerSettings({ onSave }: IInnerSettingsProps) {
     }, [form, values])
 
     const { settings, setSettings } = useSettings()
-    const isTauri = utils.isTauri()
 
     useEffect(() => {
         if (settings) {
@@ -1046,6 +1056,7 @@ export function InnerSettings({ onSave }: IInnerSettingsProps) {
                 background: theme.colors.backgroundPrimary,
                 minWidth: isDesktopApp ? 450 : 400,
             }}
+            data-testid='settings-container'
         >
             <nav
                 style={{
@@ -1128,7 +1139,7 @@ export function InnerSettings({ onSave }: IInnerSettingsProps) {
                             </div>
                         }
                     >
-                        <Input autoFocus type='password' size='compact' onBlur={onBlur} />
+                        <Input autoFocus type='password' size='compact' name='apiKey' onBlur={onBlur} />
                     </FormItem>
                 )}
                 {values.provider !== 'Azure' && (
@@ -1214,10 +1225,10 @@ export function InnerSettings({ onSave }: IInnerSettingsProps) {
                     <TTSVoicesSettings onBlur={onBlur} />
                 </FormItem>
                 <FormItem name='hotkey' label={t('Hotkey')}>
-                    <HotkeyRecorder onBlur={onBlur} />
+                    <HotkeyRecorder onBlur={onBlur} testId='hotkey-recorder' />
                 </FormItem>
                 <FormItem name='ocrHotkey' label={t('OCR Hotkey')}>
-                    <HotkeyRecorder onBlur={onBlur} />
+                    <HotkeyRecorder onBlur={onBlur} testId='ocr-hotkey-recorder' />
                 </FormItem>
                 <FormItem
                     style={{
