@@ -183,16 +183,13 @@ const API_URL_PATH = `/openai/deployments/${deployName}/completions?api-version=
 
 [LICENSE](./LICENSE)
 
-# Group
-
-| <a target="_blank" href="https://t.me/+E0ev56MAUFFjOGQ1">Join the Telegram Group (English)</a> | <a target="_blank" href="https://t.me/+QoVo0d840BVlYzY1">加入 Telegram 群组 (中文)</a> |
-| ------------- | ------------- |
-| <img height="260" src="https://user-images.githubusercontent.com/1206493/236804890-34557624-69c7-41c3-8731-6c5d720b07fa.jpeg" /> | <img height="260" src="https://user-images.githubusercontent.com/1206493/236804161-fe86b7a8-7f29-4ea1-8e1e-e33ea6807234.jpeg" /> |
-
 # Star History
 
 <p align="center">
   <a target="_blank" href="https://star-history.com/#yetone/openai-translator&Date">
-    <img src="https://api.star-history.com/svg?repos=yetone/openai-translator&type=Date" />
+    <picture>
+      <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/svg?repos=yetone/openai-translator&type=Date&theme=dark">
+      <img alt="NebulaGraph Data Intelligence Suite(ngdi)" src="https://api.star-history.com/svg?repos=yetone/openai-translator&type=Date">
+    </picture>
   </a>
 </p>

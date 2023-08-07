@@ -1,10 +1,9 @@
 /* eslint-disable camelcase */
 import * as utils from '../common/utils'
-import * as lang from './components/lang/lang'
 import { fetchSSE } from './utils'
 import { urlJoin } from 'url-join-ts'
 import { v4 as uuidv4 } from 'uuid'
-import { getLangConfig, LangCode } from './components/lang/lang'
+import { getLangConfig, getLangName, LangCode } from '../common/lang'
 import { getUniversalFetch } from './universal-fetch'
 import { Action } from './internal-services/db'
 import { codeBlock, oneLine, oneLineTrim } from 'common-tags'
@@ -217,8 +216,8 @@ export async function translate(query: TranslateQuery) {
     } else {
         const sourceLangCode = query.detectFrom
         const targetLangCode = query.detectTo
-        const sourceLangName = lang.getLangName(sourceLangCode)
-        const targetLangName = lang.getLangName(targetLangCode)
+        const sourceLangName = getLangName(sourceLangCode)
+        const targetLangName = getLangName(targetLangCode)
         console.debug('sourceLang', sourceLangName)
         console.debug('targetLang', targetLangName)
         const toChinese = chineseLangCodes.indexOf(targetLangCode) >= 0
@@ -304,36 +303,38 @@ export async function translate(query: TranslateQuery) {
                     } else {
                         const isSameLanguage = sourceLangCode === targetLangCode
                         rolePrompt = codeBlock`${oneLine`
-                        You are a professional translation engine.
-                        Please translate the text into ${targetLangName} without explanation.
-                        When the text has only one word,
-                        please act as a professional
-                        ${sourceLangName}-${targetLangName} dictionary,
-                        and list the original form of the word (if any),
-                        the language of the word,
-                        ${targetLangConfig.phoneticNotation && 'the corresponding phonetic notation or transcription, '}
-                        all senses with parts of speech,
-                        ${isSameLanguage ? '' : 'bilingual '}
-                        sentence examples (at least 3) and etymology.
-                        If you think there is a spelling mistake,
-                        please tell me the most possible correct word
-                        otherwise reply in the following format:
-                        `}
-                            <word> (<original form>)
-                            ${oneLine`
-                            [<language>]· /
-                            ${targetLangConfig.phoneticNotation && `<${targetLangConfig.phoneticNotation}>`}
+                            You are a professional translation engine.
+                            Please translate the text into ${targetLangName} without explanation.
+                            When the text has only one word,
+                            please act as a professional
+                            ${sourceLangName}-${targetLangName} dictionary,
+                            and list the original form of the word (if any),
+                            the language of the word,
+                            ${
+                                targetLangConfig.phoneticNotation &&
+                                'the corresponding phonetic notation or transcription, '
+                            }
+                            all senses with parts of speech,
+                            ${isSameLanguage ? '' : 'bilingual '}
+                            sentence examples (at least 3) and etymology.
+                            If you think there is a spelling mistake,
+                            please tell me the most possible correct word
+                            otherwise reply in the following format:
                             `}
-                            ${oneLine`
-                            [<part of speech>]
-                            ${isSameLanguage ? '' : '<translated meaning> / '}
-                            <meaning in source language>
-                            `}
-                            Examples:
-                            <index>. <sentence>(<sentence translation>)
-                            Etymology:
-                            <etymology>
-                        `
+<word> (<original form>)
+${oneLine`
+[<language>]· /
+${targetLangConfig.phoneticNotation && `<${targetLangConfig.phoneticNotation}>`}
+`}
+${oneLine`
+[<part of speech>]
+${isSameLanguage ? '' : '<translated meaning> / '}
+<meaning in source language>
+`}
+Examples:
+<index>. <sentence>(<sentence translation>)
+Etymology:
+<etymology>`
                         console.log(rolePrompt)
                         commandPrompt = 'I understand. Please give me the word.'
                         contentPrompt = `The word is: ${query.text}`
@@ -371,7 +372,7 @@ export async function translate(query: TranslateQuery) {
                 commandPrompt = oneLine`
                 Please summarize this text in the most concise language
                 and must use ${targetLangName} language!
-                Only summarize the text between 
+                Only summarize the text between
                 ${quoteProcessor.quoteStart} and ${quoteProcessor.quoteEnd}.
                 `
                 contentPrompt = `${quoteProcessor.quoteStart}${query.text}${quoteProcessor.quoteEnd}`
@@ -451,7 +452,7 @@ export async function translate(query: TranslateQuery) {
                         parts: [
                             codeBlock`
                         ${rolePrompt}
-                        
+
                         ${commandPrompt}:
                         ${contentPrompt}
                         `,
@@ -461,6 +462,7 @@ export async function translate(query: TranslateQuery) {
             ],
             model: settings.apiModel, // 'text-davinci-002-render-sha'
             parent_message_id: uuidv4(),
+            history_and_training_disabled: true,
         }
     } else {
         const messages = [
@@ -499,8 +501,8 @@ export async function translate(query: TranslateQuery) {
             break
     }
 
+    let finished = false // finished can be called twice because event.data is 1. "finish_reason":"stop"; 2. [DONE]
     if (settings.provider === 'ChatGPT') {
-        let conversationId = ''
         let length = 0
         await fetchSSE(`${utils.defaultChatGPTWebAPI}/conversation`, {
             method: 'POST',
@@ -511,20 +513,24 @@ export async function translate(query: TranslateQuery) {
                 query.onStatusCode?.(status)
             },
             onMessage: (msg) => {
+                if (finished) return
                 let resp
                 try {
                     resp = JSON.parse(msg)
                     // eslint-disable-next-line no-empty
                 } catch {
                     query.onFinish('stop')
+                    finished = true
                     return
                 }
-                if (!conversationId) {
-                    conversationId = resp.conversation_id
+
+                if (resp.is_completion) {
+                    query.onFinish('stop')
+                    finished = true
+                    return
                 }
-                const { finish_details: finishDetails } = resp.message
-                if (finishDetails) {
-                    query.onFinish(finishDetails.type)
+
+                if (!resp.message) {
                     return
                 }
 
@@ -568,21 +574,17 @@ export async function translate(query: TranslateQuery) {
                 if (typeof error === 'object') {
                     const { message } = error
                     if (message) {
-                        query.onError(message)
+                        if (typeof message === 'string') {
+                            query.onError(message)
+                        } else {
+                            query.onError(JSON.stringify(message))
+                        }
                         return
                     }
                 }
                 query.onError('Unknown error')
             },
         })
-
-        if (conversationId) {
-            await fetcher(`${utils.defaultChatGPTWebAPI}/conversation/${conversationId}`, {
-                method: 'PATCH',
-                headers,
-                body: JSON.stringify({ is_visible: false }),
-            })
-        }
     } else {
         const url = urlJoin(settings.apiURL, settings.apiURLPath)
         await fetchSSE(url, {
@@ -591,12 +593,14 @@ export async function translate(query: TranslateQuery) {
             body: JSON.stringify(body),
             signal: query.signal,
             onMessage: (msg) => {
+                if (finished) return
                 let resp
                 try {
                     resp = JSON.parse(msg)
                     // eslint-disable-next-line no-empty
                 } catch {
                     query.onFinish('stop')
+                    finished = true
                     return
                 }
 
@@ -607,6 +611,7 @@ export async function translate(query: TranslateQuery) {
                 const { finish_reason: finishReason } = choices[0]
                 if (finishReason) {
                     query.onFinish(finishReason)
+                    finished = true
                     return
                 }
 
@@ -656,7 +661,11 @@ export async function translate(query: TranslateQuery) {
                 if (typeof error === 'object') {
                     const { message } = error
                     if (message) {
-                        query.onError(message)
+                        if (typeof message === 'string') {
+                            query.onError(message)
+                        } else {
+                            query.onError(JSON.stringify(message))
+                        }
                         return
                     }
                 }

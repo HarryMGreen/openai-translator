@@ -43,6 +43,8 @@ const settingKeys: Record<keyof ISettings, number> = {
     selectInputElementsText: 1,
     disableCollectingStatistics: 1,
     allowUsingClipboardWhenSelectedTextNotAvailable: 1,
+    pinned: 1,
+    autoCollect: 1,
 }
 
 export async function getSettings(): Promise<ISettings> {
@@ -234,4 +236,8 @@ export async function fetchSSE(input: string, options: FetchSSEOptions) {
     } finally {
         reader.releaseLock()
     }
+}
+
+export function getAssetUrl(asset: string) {
+    return new URL(asset, import.meta.url).href
 }
