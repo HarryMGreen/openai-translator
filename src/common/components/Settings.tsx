@@ -2,6 +2,8 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import _ from 'underscore'
 import icon from '../assets/images/icon-large.png'
 import beams from '../assets/images/beams.jpg'
+import wechat from '../assets/images/wechat.png'
+import alipay from '../assets/images/alipay.png'
 import toast, { Toaster } from 'react-hot-toast'
 import * as utils from '../utils'
 import { Client as Styletron } from 'styletron-engine-atomic'
@@ -23,7 +25,7 @@ import { IoCloseCircle } from 'react-icons/io5'
 import { useTranslation } from 'react-i18next'
 import AppConfig from '../../../package.json'
 import { useSettings } from '../hooks/useSettings'
-import { langCode2TTSLang } from '../tts'
+import { defaultTTSProvider, langCode2TTSLang } from '../tts'
 import { RiDeleteBin5Line } from 'react-icons/ri'
 import { IoMdAdd } from 'react-icons/io'
 import { TTSProvider } from '../tts/types'
@@ -34,6 +36,7 @@ import { getUniversalFetch } from '../universal-fetch'
 import { useLiveQuery } from 'dexie-react-hooks'
 import { actionService } from '../services/action'
 import { GlobalSuspense } from './GlobalSuspense'
+import { Modal, ModalBody, ModalHeader } from 'baseui-sd/modal'
 
 const langOptions: Value = supportedLanguages.reduce((acc, [id, label]) => {
     return [
@@ -236,7 +239,7 @@ function TTSVoicesSettings({ value, onChange, onBlur }: TTSVoicesSettingsProps) 
 
     useEffect(() => {
         ;(async () => {
-            switch (value?.provider ?? 'WebSpeech') {
+            switch (value?.provider ?? defaultTTSProvider) {
                 case 'EdgeTTS':
                     setSupportVoices(await getEdgeVoices())
                     break
@@ -244,7 +247,7 @@ function TTSVoicesSettings({ value, onChange, onBlur }: TTSVoicesSettingsProps) 
                     setSupportVoices(speechSynthesis.getVoices())
                     break
                 default:
-                    setSupportVoices(speechSynthesis.getVoices())
+                    setSupportVoices(await getEdgeVoices())
                     break
             }
         })()
@@ -276,7 +279,7 @@ function TTSVoicesSettings({ value, onChange, onBlur }: TTSVoicesSettingsProps) 
         (lang: string) => {
             const ttsLang = langCode2TTSLang[lang]
             return supportVoices
-                .filter((v) => v.lang === ttsLang)
+                .filter((v) => v.lang.split('-')[0] === lang || v.lang === ttsLang)
                 .map((sv) => ({ id: sv.voiceURI, label: sv.name, lang: sv.lang }))
         },
         [supportVoices]
@@ -1060,6 +1063,8 @@ export function InnerSettings({ onSave }: IInnerSettingsProps) {
     const isDesktopApp = utils.isDesktopApp()
     const isMacOS = navigator.userAgent.includes('Mac OS X')
 
+    const [showBuyMeACoffee, setShowBuyMeACoffee] = useState(false)
+
     return (
         <div
             style={{
@@ -1067,6 +1072,8 @@ export function InnerSettings({ onSave }: IInnerSettingsProps) {
                 paddingBottom: isDesktopApp ? '32px' : undefined,
                 background: theme.colors.backgroundPrimary,
                 minWidth: isDesktopApp ? 450 : 400,
+                maxHeight: utils.isUserscript() ? 'calc(100vh - 32px)' : undefined,
+                overflow: utils.isUserscript() ? 'auto' : undefined,
             }}
             data-testid='settings-container'
         >
@@ -1089,7 +1096,14 @@ export function InnerSettings({ onSave }: IInnerSettingsProps) {
                 data-tauri-drag-region
             >
                 <img width='22' src={utils.getAssetUrl(icon)} alt='logo' />
-                <h2>
+                <h2
+                    style={{
+                        display: 'flex',
+                        flexDirection: 'row',
+                        alignItems: 'center',
+                        gap: 6,
+                    }}
+                >
                     OpenAI Translator
                     {AppConfig?.version ? (
                         <a
@@ -1102,6 +1116,23 @@ export function InnerSettings({ onSave }: IInnerSettingsProps) {
                         </a>
                     ) : null}
                 </h2>
+                <div
+                    style={{
+                        flexGrow: 1,
+                    }}
+                />
+                <div>
+                    <Button
+                        kind='secondary'
+                        size='mini'
+                        onClick={(e) => {
+                            e.stopPropagation()
+                            setShowBuyMeACoffee(true)
+                        }}
+                    >
+                        {'❤️  ' + t('Buy me a coffee')}
+                    </Button>
+                </div>
             </nav>
             <Form
                 form={form}
@@ -1268,6 +1299,42 @@ export function InnerSettings({ onSave }: IInnerSettingsProps) {
                 </div>
                 <Toaster />
             </Form>
+            <Modal
+                isOpen={showBuyMeACoffee}
+                onClose={() => setShowBuyMeACoffee(false)}
+                closeable
+                size='auto'
+                autoFocus
+                animate
+            >
+                <ModalHeader
+                    style={{
+                        display: 'flex',
+                        flexDirection: 'column',
+                        alignItems: 'center',
+                    }}
+                >
+                    {'❤️  ' + t('Buy me a coffee')}
+                </ModalHeader>
+                <ModalBody>
+                    <div
+                        style={{
+                            display: 'flex',
+                            flexDirection: 'column',
+                            alignItems: 'center',
+                            gap: 10,
+                        }}
+                    >
+                        <div>{t('If you find this tool helpful, you can buy me a cup of coffee.')}</div>
+                        <div>
+                            <img width='330' src={wechat} />
+                        </div>
+                        <div>
+                            <img width='330' src={alipay} />
+                        </div>
+                    </div>
+                </ModalBody>
+            </Modal>
         </div>
     )
 }
