@@ -1,34 +1,135 @@
 use tauri::Manager;
 use parking_lot::Mutex;
+use enigo::*;
+use std::{thread, time::Duration};
 
 use crate::APP_HANDLE;
 
+static SELECT_ALL: Mutex<()> = Mutex::new(());
+
 #[allow(dead_code)]
 #[cfg(target_os = "windows")]
-pub fn copy() {
-    use enigo::*;
-    let mut enigo = Enigo::new();
+pub fn select_all(enigo: &mut Enigo) {
+    let _guard = SELECT_ALL.lock();
+
+    crate::utils::up_control_keys(enigo);
+
+    enigo.key_down(Key::Control);
+    enigo.key_click(Key::Layout('a'));
+    enigo.key_up(Key::Control);
+}
+
+#[allow(dead_code)]
+#[cfg(target_os = "macos")]
+pub fn select_all(enigo: &mut Enigo) {
+    let _guard = SELECT_ALL.lock();
+
+    let apple_script = APP_HANDLE
+        .get()
+        .unwrap()
+        .path_resolver()
+        .resolve_resource("resources/select-all.applescript")
+        .expect("failed to resolve select-all.applescript");
+
+    std::process::Command::new("osascript").arg(apple_script).spawn().expect("failed to run applescript").wait().expect("failed to wait");
+}
+
+#[allow(dead_code)]
+#[cfg(target_os = "linux")]
+pub fn select_all(enigo: &mut Enigo) {
+    let _guard = SELECT_ALL.lock();
+
+    crate::utils::up_control_keys(enigo);
+
+    enigo.key_down(Key::Control);
+    enigo.key_click(Key::Layout('a'));
+    enigo.key_up(Key::Control);
+}
+
+pub static INPUT_LOCK: Mutex<()> = Mutex::new(());
+
+#[cfg(not(target_os = "macos"))]
+pub fn left_arrow_click(enigo: &mut Enigo, n: usize) {
+    let _guard = INPUT_LOCK.lock();
+
+    for _ in 0..n {
+        enigo.key_click(Key::LeftArrow);
+    }
+}
+
+#[cfg(target_os = "macos")]
+pub fn left_arrow_click(enigo: &mut Enigo, n: usize) {
+    let _guard = INPUT_LOCK.lock();
+
+    let apple_script = APP_HANDLE
+        .get()
+        .unwrap()
+        .path_resolver()
+        .resolve_resource("resources/left.applescript")
+        .expect("failed to resolve left.applescript");
+
+    std::process::Command::new("osascript").arg(apple_script).arg(n.to_string()).spawn().expect("failed to run applescript").wait().expect("failed to wait");
+}
+
+#[cfg(not(target_os = "macos"))]
+pub fn right_arrow_click(enigo: &mut Enigo, n: usize) {
+    let _guard = INPUT_LOCK.lock();
+
+    for _ in 0..n {
+        enigo.key_click(Key::RightArrow);
+    }
+}
+
+#[cfg(target_os = "macos")]
+pub fn right_arrow_click(enigo: &mut Enigo, n: usize) {
+    let _guard = INPUT_LOCK.lock();
+
+    let apple_script = APP_HANDLE
+        .get()
+        .unwrap()
+        .path_resolver()
+        .resolve_resource("resources/right.applescript")
+        .expect("failed to resolve right.applescript");
+
+    std::process::Command::new("osascript").arg(apple_script).arg(n.to_string()).spawn().expect("failed to run applescript").wait().expect("failed to wait");
+}
+
+#[cfg(not(target_os = "macos"))]
+pub fn backspace_click(enigo: &mut Enigo, n: usize) {
+    let _guard = INPUT_LOCK.lock();
+
+    for _ in 0..n {
+        enigo.key_click(Key::Backspace);
+    }
+}
+
+#[cfg(target_os = "macos")]
+pub fn backspace_click(enigo: &mut Enigo, n: usize) {
+    let _guard = INPUT_LOCK.lock();
+
+    let apple_script = APP_HANDLE
+        .get()
+        .unwrap()
+        .path_resolver()
+        .resolve_resource("resources/backspace.applescript")
+        .expect("failed to resolve backspace.applescript");
+
+    std::process::Command::new("osascript").arg(apple_script).arg(n.to_string()).spawn().expect("failed to run applescript").wait().expect("failed to wait");
+}
+
+#[allow(dead_code)]
+#[cfg(target_os = "windows")]
+pub fn up_control_keys(enigo: &mut Enigo) {
     enigo.key_up(Key::Control);
     enigo.key_up(Key::Alt);
     enigo.key_up(Key::Shift);
     enigo.key_up(Key::Space);
-    enigo.key_down(Key::Control);
-    enigo.key_click(Key::Layout('c'));
-    enigo.key_up(Key::Control);
+    enigo.key_up(Key::Tab);
 }
-
-static COPY_PASTE: Mutex<()> = Mutex::new(());
 
 #[allow(dead_code)]
 #[cfg(target_os = "macos")]
-pub fn copy() {
-    // use std::{thread, time::Duration};
-
-    use enigo::*;
-
-    let _guard = COPY_PASTE.lock();
-
-    let mut enigo = Enigo::new();
+pub fn up_control_keys(enigo: &mut Enigo) {
     enigo.key_up(Key::Control);
     enigo.key_up(Key::Meta);
     enigo.key_up(Key::Alt);
@@ -36,36 +137,110 @@ pub fn copy() {
     enigo.key_up(Key::Space);
     enigo.key_up(Key::Tab);
     enigo.key_up(Key::Option);
-    enigo.key_down(Key::Meta);
-    enigo.key_click(Key::Layout('c'));
-    // enigo.key_down(Key::Layout('c'));
-    // thread::sleep(Duration::from_millis(300));
-    // enigo.key_up(Key::Layout('c'));
-    enigo.key_up(Key::Meta);
 }
 
 #[allow(dead_code)]
 #[cfg(target_os = "linux")]
-pub fn copy() {
-    use enigo::*;
-    let mut enigo = Enigo::new();
+pub fn up_control_keys(enigo: &mut Enigo) {
     enigo.key_up(Key::Control);
     enigo.key_up(Key::Alt);
     enigo.key_up(Key::Shift);
     enigo.key_up(Key::Space);
+    enigo.key_up(Key::Tab);
+}
+
+static COPY_PASTE: Mutex<()> = Mutex::new(());
+
+#[allow(dead_code)]
+#[cfg(target_os = "windows")]
+pub fn copy(enigo: &mut Enigo) {
+    let _guard = COPY_PASTE.lock();
+
+    up_control_keys(enigo);
+
     enigo.key_down(Key::Control);
+    thread::sleep(Duration::from_millis(50));
     enigo.key_click(Key::Layout('c'));
+    thread::sleep(Duration::from_millis(50));
+    enigo.key_up(Key::Control);
+}
+
+#[allow(dead_code)]
+#[cfg(target_os = "macos")]
+pub fn copy(enigo: &mut Enigo) {
+    let _guard = COPY_PASTE.lock();
+
+    let apple_script = APP_HANDLE
+        .get()
+        .unwrap()
+        .path_resolver()
+        .resolve_resource("resources/copy.applescript")
+        .expect("failed to resolve copy.applescript");
+
+    std::process::Command::new("osascript").arg(apple_script).spawn().expect("failed to run applescript").wait().expect("failed to wait");
+}
+
+#[allow(dead_code)]
+#[cfg(target_os = "linux")]
+pub fn copy(enigo: &mut Enigo) {
+    let _guard = COPY_PASTE.lock();
+
+    up_control_keys(enigo);
+
+    enigo.key_down(Key::Control);
+    thread::sleep(Duration::from_millis(50));
+    enigo.key_click(Key::Layout('c'));
+    thread::sleep(Duration::from_millis(50));
+    enigo.key_up(Key::Control);
+}
+
+#[allow(dead_code)]
+#[cfg(target_os = "windows")]
+pub fn paste(enigo: &mut Enigo) {
+    let _guard = COPY_PASTE.lock();
+
+    crate::utils::up_control_keys(enigo);
+
+    enigo.key_down(Key::Control);
+    enigo.key_click(Key::Layout('v'));
+    enigo.key_up(Key::Control);
+}
+
+#[allow(dead_code)]
+#[cfg(target_os = "macos")]
+pub fn paste(enigo: &mut Enigo) {
+    let _guard = COPY_PASTE.lock();
+
+    let apple_script = APP_HANDLE
+        .get()
+        .unwrap()
+        .path_resolver()
+        .resolve_resource("resources/paste.applescript")
+        .expect("failed to resolve paste.applescript");
+
+    std::process::Command::new("osascript").arg(apple_script).spawn().expect("failed to run applescript").wait().expect("failed to wait");
+}
+
+#[allow(dead_code)]
+#[cfg(target_os = "linux")]
+pub fn paste(enigo: &mut Enigo) {
+    let _guard = COPY_PASTE.lock();
+
+    crate::utils::up_control_keys(enigo);
+
+    enigo.key_down(Key::Control);
+    enigo.key_click(Key::Layout('v'));
     enigo.key_up(Key::Control);
 }
 
 #[cfg(not(target_os = "macos"))]
 pub fn get_selected_text() -> Result<String, Box<dyn std::error::Error>> {
-    get_selected_text_by_clipboard()
+    let mut enigo = Enigo::new();
+    get_selected_text_by_clipboard(&mut enigo, false)
 }
 
-pub fn get_selected_text_by_clipboard() -> Result<String, Box<dyn std::error::Error>> {
+pub fn get_selected_text_by_clipboard(enigo: &mut Enigo, cancel_select: bool) -> Result<String, Box<dyn std::error::Error>> {
     use arboard::Clipboard;
-    use std::{thread, time::Duration};
 
     let old_clipboard = (Clipboard::new()?.get_text(), Clipboard::new()?.get_image());
 
@@ -77,7 +252,11 @@ pub fn get_selected_text_by_clipboard() -> Result<String, Box<dyn std::error::Er
 
     thread::sleep(Duration::from_millis(50));
 
-    copy();
+    copy(enigo);
+
+    if cancel_select {
+        right_arrow_click(enigo, 1);
+    }
 
     thread::sleep(Duration::from_millis(100));
 
@@ -158,7 +337,7 @@ pub fn get_selected_text_by_ax() -> Result<String, Box<dyn std::error::Error>> {
         .unwrap()
         .path_resolver()
         .resolve_resource("resources/get-selected-text-by-ax.applescript")
-        .expect("failed to resolve ocr binary resource");
+        .expect("failed to resolve get-selected-text-by-ax.applescript");
 
     match std::process::Command::new("osascript")
         .arg(apple_script)
@@ -194,7 +373,7 @@ pub fn get_selected_text_by_clipboard_using_applescript() -> Result<String, Box<
         .unwrap()
         .path_resolver()
         .resolve_resource("resources/get-selected-text.applescript")
-        .expect("failed to resolve ocr binary resource");
+        .expect("failed to resolve get-selected-text.applescript");
 
     match std::process::Command::new("osascript")
         .arg(apple_script)
@@ -226,6 +405,13 @@ pub fn get_selected_text_by_clipboard_using_applescript() -> Result<String, Box<
 pub fn send_text(text: String) {
     match APP_HANDLE.get() {
         Some(handle) => handle.emit_all("change-text", text).unwrap_or_default(),
+        None => {}
+    }
+}
+
+pub fn writing_text(text: String) {
+    match APP_HANDLE.get() {
+        Some(handle) => handle.emit_all("writing-text", text).unwrap_or_default(),
         None => {}
     }
 }

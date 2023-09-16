@@ -835,7 +835,7 @@ function HotkeyRecorder({ value, onChange, onBlur, testId }: IHotkeyRecorderProp
     useEffect(() => {
         let keys_ = Array.from(keys)
         if (keys_ && keys_.length > 0) {
-            keys_ = keys_.filter((k) => k.toLowerCase() !== 'meta')
+            keys_ = keys_.map((k) => (k.toLowerCase() === 'meta' ? 'CommandOrControl' : k))
             setHotKeys(keys_)
             onChange?.(keys_.join('+'))
         }
@@ -988,6 +988,7 @@ export function InnerSettings({ onSave }: IInnerSettingsProps) {
         restorePreviousPosition: false,
         selectInputElementsText: utils.defaultSelectInputElementsText,
         runAtStartup: false,
+        writingTargetLanguage: utils.defaultWritingTargetLanguage,
     })
     const [prevValues, setPrevValues] = useState<ISettings>(values)
 
@@ -1134,6 +1135,32 @@ export function InnerSettings({ onSave }: IInnerSettingsProps) {
                     </Button>
                 </div>
             </nav>
+            {!isDesktopApp && (
+                <div
+                    style={{
+                        padding: '20px 25px 0px 25px',
+                        color: theme.colors.contentPrimary,
+                    }}
+                >
+                    {t(
+                        'It is recommended to download the desktop application of OpenAI Translator to enjoy the wonderful experience of word translation in all software!'
+                    )}{' '}
+                    <a
+                        target='_blank'
+                        href={
+                            values?.i18n?.toLowerCase().includes('zh')
+                                ? 'https://github.com/openai-translator/openai-translator/blob/main/README-CN.md#%E5%AE%89%E8%A3%85'
+                                : 'https://github.com/openai-translator/openai-translator#installation'
+                        }
+                        rel='noreferrer'
+                        style={{
+                            color: theme.colors.linkText,
+                        }}
+                    >
+                        {t('Download Link')}
+                    </a>
+                </div>
+            )}
             <Form
                 form={form}
                 style={{
@@ -1143,6 +1170,9 @@ export function InnerSettings({ onSave }: IInnerSettingsProps) {
                 initialValues={values}
                 onValuesChange={onChange}
             >
+                <FormItem name='i18n' label={t('i18n')}>
+                    <Ii18nSelector onBlur={onBlur} />
+                </FormItem>
                 <FormItem name='provider' label={t('Default service provider')} required>
                     <ProviderSelector />
                 </FormItem>
@@ -1259,9 +1289,6 @@ export function InnerSettings({ onSave }: IInnerSettingsProps) {
                 <FormItem name='themeType' label={t('Theme')}>
                     <ThemeTypeSelector onBlur={onBlur} />
                 </FormItem>
-                <FormItem name='i18n' label={t('i18n')}>
-                    <Ii18nSelector onBlur={onBlur} />
-                </FormItem>
                 <FormItem name='tts' label={t('TTS')}>
                     <TTSVoicesSettings onBlur={onBlur} />
                 </FormItem>
@@ -1270,6 +1297,37 @@ export function InnerSettings({ onSave }: IInnerSettingsProps) {
                 </FormItem>
                 <FormItem name='ocrHotkey' label={t('OCR Hotkey')}>
                     <HotkeyRecorder onBlur={onBlur} testId='ocr-hotkey-recorder' />
+                </FormItem>
+                <FormItem
+                    style={{
+                        display: isDesktopApp ? 'block' : 'none',
+                    }}
+                    name='writingTargetLanguage'
+                    label={t('Writing target language')}
+                >
+                    <LanguageSelector onBlur={onBlur} />
+                </FormItem>
+                <FormItem
+                    style={{
+                        display: isDesktopApp ? 'block' : 'none',
+                    }}
+                    name='writingHotkey'
+                    label={t('Writing Hotkey')}
+                    caption={t(
+                        'Press this shortcut key in the input box of any application, and the text already entered in the input box will be automatically translated into the writing target language.'
+                    )}
+                >
+                    <HotkeyRecorder onBlur={onBlur} testId='writing-hotkey-recorder' />
+                </FormItem>
+                <FormItem
+                    style={{
+                        display: isDesktopApp ? 'block' : 'none',
+                    }}
+                    name='writingNewlineHotkey'
+                    label={t('Writing line break shortcut')}
+                    caption={t('When writing, which key should be pressed when encountering a line break?')}
+                >
+                    <HotkeyRecorder onBlur={onBlur} testId='writing-newline-hotkey-recorder' />
                 </FormItem>
                 <FormItem
                     style={{
