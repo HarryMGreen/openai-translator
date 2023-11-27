@@ -61,7 +61,6 @@ import { Markdown } from './Markdown'
 import useResizeObserver from 'use-resize-observer'
 import _ from 'underscore'
 import { GlobalSuspense } from './GlobalSuspense'
-import { countTokens } from '../token'
 import { useLazyEffect } from '../usehooks'
 import LogoWithText, { type LogoWithTextRef } from './LogoWithText'
 import { useTranslatorStore, setEditableText, setOriginalText, setDetectedOriginalText } from '../store'
@@ -707,7 +706,11 @@ function InnerTranslator(props: IInnerTranslatorProps) {
 
     useLazyEffect(
         () => {
-            setTokenCount(countTokens(editableText, settings?.apiModel))
+            ;(async () => {
+                // use dynamic import to reduce bundle size
+                const { countTokens } = await import('../token')
+                setTokenCount(countTokens(editableText, settings?.apiModel))
+            })()
         },
         [editableText],
         500
