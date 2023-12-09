@@ -1,7 +1,10 @@
 use parking_lot::Mutex;
-use tauri::api::path::config_dir;
+use tauri::path::BaseDirectory;
+use tauri::Manager;
 
 use serde::{Deserialize, Serialize};
+
+use crate::APP_HANDLE;
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(rename_all = "camelCase")]
@@ -13,6 +16,7 @@ pub struct Config {
     pub restore_previous_position: Option<bool>,
     pub always_show_icons: Option<bool>,
     pub allow_using_clipboard_when_selected_text_not_available: Option<bool>,
+    pub automatic_check_for_updates: Option<bool>,
 }
 
 static CONFIG_CACHE: Mutex<Option<Config>> = Mutex::new(None);
@@ -34,8 +38,8 @@ pub fn clear_config_cache() {
 
 #[tauri::command]
 pub fn get_config_content() -> Result<String, String> {
-    if let Some(config_dir) = config_dir() {
-        let app_config_dir = config_dir.join("xyz.yetone.apps.openai-translator");
+    if let Some(app) = APP_HANDLE.get() {
+        let app_config_dir = app.path().resolve("xyz.yetone.apps.openai-translator", BaseDirectory::Config).unwrap();
         if !app_config_dir.exists() {
             std::fs::create_dir_all(&app_config_dir).unwrap();
         }

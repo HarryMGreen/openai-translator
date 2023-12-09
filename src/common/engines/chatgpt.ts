@@ -7,11 +7,30 @@ import { codeBlock } from 'common-tags'
 import { fetchSSE } from '../utils'
 
 export class ChatGPT implements IEngine {
-    async listModels(): Promise<IModel[]> {
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    async listModels(apiKey_: string | undefined): Promise<IModel[]> {
         const fetcher = getUniversalFetch()
-        const sessionResp = await fetcher(utils.defaultChatGPTAPIAuthSession, { cache: 'no-cache' })
+        const sessionResp = await fetcher(utils.defaultChatGPTAPIAuthSession, {
+            cache: 'no-cache',
+            headers: {
+                'User-Agent':
+                    'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) chatall/1.29.40 Chrome/114.0.5735.134 Safari/537.36',
+            },
+        })
         if (sessionResp.status !== 200) {
-            throw new Error(`Failed to get session: ${sessionResp.statusText}`)
+            try {
+                const sessionRespJsn = await sessionResp.json()
+                if (sessionRespJsn && sessionRespJsn.error) {
+                    throw new Error(sessionRespJsn.error)
+                }
+                if (sessionRespJsn && sessionRespJsn.detail) {
+                    throw new Error(`Failed to fetch ChatGPT Web accessToken: ${sessionRespJsn.detail}`)
+                } else {
+                    throw new Error(`Failed to fetch ChatGPT Web accessToken: ${sessionResp.statusText}`)
+                }
+            } catch {
+                throw new Error(`Failed to fetch ChatGPT Web accessToken: ${sessionResp.statusText}`)
+            }
         }
         const sessionRespJsn = await sessionResp.json()
         const headers: Record<string, string> = {
@@ -38,6 +57,7 @@ export class ChatGPT implements IEngine {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         return models.map((model: any) => ({
             name: `${model.title} (${model.tags.join(', ')})`,
+            description: model.description,
             id: model.slug,
         }))
     }
@@ -48,7 +68,16 @@ export class ChatGPT implements IEngine {
         let resp: Response | null = null
         resp = await fetcher(utils.defaultChatGPTAPIAuthSession, { signal: req.signal })
         if (resp.status !== 200) {
-            req.onError('Failed to fetch ChatGPT Web accessToken.')
+            try {
+                const respJsn = await resp.json()
+                if (respJsn && respJsn.detail) {
+                    req.onError(`Failed to fetch ChatGPT Web accessToken: ${respJsn.detail}`)
+                } else {
+                    req.onError(`Failed to fetch ChatGPT Web accessToken: ${resp.statusText}`)
+                }
+            } catch {
+                req.onError('Failed to fetch ChatGPT Web accessToken.')
+            }
             req.onStatusCode?.(resp.status)
             return
         }
@@ -90,7 +119,7 @@ export class ChatGPT implements IEngine {
             onStatusCode: (status) => {
                 req.onStatusCode?.(status)
             },
-            onMessage: (msg) => {
+            onMessage: async (msg) => {
                 if (finished) return
                 let resp
                 try {
@@ -109,6 +138,9 @@ export class ChatGPT implements IEngine {
                 }
 
                 if (!resp.message) {
+                    if (resp.error) {
+                        req.onError(`ChatGPT Web error: ${resp.error}`)
+                    }
                     return
                 }
 
@@ -116,7 +148,7 @@ export class ChatGPT implements IEngine {
                 if (author.role === 'assistant') {
                     const targetTxt = content.parts.join('')
                     const textDelta = targetTxt.slice(length)
-                    req.onMessage({ content: textDelta, role: '' })
+                    await req.onMessage({ content: textDelta, role: '' })
                     length = targetTxt.length
                 }
             },

@@ -6,8 +6,9 @@ import { Provider as StyletronProvider } from 'styletron-react'
 import { BaseProvider } from 'baseui-sd'
 import { Textarea } from 'baseui-sd/textarea'
 import { createUseStyles } from 'react-jss'
-import { AiOutlineTranslation, AiOutlineFileSync } from 'react-icons/ai'
+import { AiOutlineFileSync } from 'react-icons/ai'
 import { IoSettingsOutline } from 'react-icons/io5'
+import { TiArrowBack } from 'react-icons/ti'
 import { TbArrowsExchange, TbCsv } from 'react-icons/tb'
 import { MdOutlineGrade, MdGrade } from 'react-icons/md'
 import * as mdIcons from 'react-icons/md'
@@ -30,7 +31,7 @@ import { BsTextareaT } from 'react-icons/bs'
 import { FcIdea } from 'react-icons/fc'
 import rocket from '../assets/images/rocket.gif'
 import partyPopper from '../assets/images/party-popper.gif'
-import type { Event } from '@tauri-apps/api/event'
+import { listen, Event } from '@tauri-apps/api/event'
 import SpeakerMotion from '../components/SpeakerMotion'
 import IpLocationNotification from '../components/IpLocationNotification'
 import { HighlightInTextarea } from '../highlight-in-textarea'
@@ -63,8 +64,10 @@ import _ from 'underscore'
 import { GlobalSuspense } from './GlobalSuspense'
 import { useLazyEffect } from '../usehooks'
 import LogoWithText, { type LogoWithTextRef } from './LogoWithText'
-import { useTranslatorStore, setEditableText, setOriginalText, setDetectedOriginalText } from '../store'
+import { useTranslatorStore, setEditableText, setOriginalText } from '../store'
 import Toaster from './Toaster'
+import { readBinaryFile } from '@tauri-apps/plugin-fs'
+import { getCurrent } from '@tauri-apps/api/window'
 
 const cache = new LRUCache({
     max: 500,
@@ -94,30 +97,20 @@ const useStyles = createUseStyles({
         height: '100%',
         boxSizing: 'border-box',
     },
-    'footer': (props: IThemedStyleProps) =>
-        props.isDesktopApp
-            ? {
-                  color: props.theme.colors.contentSecondary,
-                  position: 'fixed',
-                  width: '100%',
-                  height: '42px',
-                  cursor: 'pointer',
-                  left: '0',
-                  bottom: '0',
-                  paddingLeft: '16px',
-                  display: 'flex',
-                  alignItems: 'center',
-                  background: props.themeType === 'dark' ? 'rgba(31, 31, 31, 0.5)' : 'rgba(255, 255, 255, 0.5)',
-                  backdropFilter: 'blur(10px)',
-              }
-            : {
-                  color: props.theme.colors.contentSecondary,
-                  position: 'absolute',
-                  cursor: 'pointer',
-                  bottom: '16px',
-                  left: '16px',
-                  lineHeight: '1',
-              },
+    'footer': (props: IThemedStyleProps) => ({
+        color: props.theme.colors.contentSecondary,
+        position: 'fixed',
+        width: '100%',
+        height: '42px',
+        cursor: 'pointer',
+        left: '0',
+        bottom: '0',
+        paddingLeft: '6px',
+        display: 'flex',
+        alignItems: 'center',
+        background: props.themeType === 'dark' ? 'rgba(31, 31, 31, 0.5)' : 'rgba(255, 255, 255, 0.5)',
+        backdropFilter: 'blur(10px)',
+    }),
     'popupCardHeaderContainer': (props: IThemedStyleProps) =>
         props.isDesktopApp
             ? {
@@ -281,12 +274,20 @@ const useStyles = createUseStyles({
             '-webkit-user-select': 'text',
             'user-select': 'text',
         },
+        '& > div': {
+            width: '100%',
+        },
     }),
     'errorMessage': {
-        display: 'flex',
-        color: 'red',
-        alignItems: 'center',
-        gap: '4px',
+        'display': 'flex',
+        'color': 'red',
+        'alignItems': 'center',
+        'gap': '4px',
+        '& *': {
+            '-ms-user-select': 'text',
+            '-webkit-user-select': 'text',
+            'user-select': 'text',
+        },
     },
     'actionButtonsContainer': {
         display: 'flex',
@@ -419,12 +420,14 @@ export interface IInnerTranslatorProps {
     text: string
     writing?: boolean
     autoFocus?: boolean
+    showSettingsIcon?: boolean
     showSettings?: boolean
     defaultShowSettings?: boolean
     containerStyle?: React.CSSProperties
     editorRows?: number
     showLogo?: boolean
     onSettingsSave?: (oldSettings: ISettings) => void
+    onSettingsShow?: (isShow: boolean) => void
 }
 
 export interface ITranslatorProps extends IInnerTranslatorProps {
@@ -451,6 +454,16 @@ export function Translator(props: ITranslatorProps) {
 
 function InnerTranslator(props: IInnerTranslatorProps) {
     const [showSettings, setShowSettings] = useState(false)
+
+    useEffect(() => {
+        setShowSettings(props.showSettings ?? false)
+    }, [props.showSettings, props.uuid])
+
+    const { onSettingsShow } = props
+
+    useEffect(() => {
+        onSettingsShow?.(showSettings)
+    }, [onSettingsShow, showSettings])
 
     const { showLogo = true } = props
 
@@ -505,7 +518,29 @@ function InnerTranslator(props: IInnerTranslatorProps) {
         }
         editor.focus()
         editor.spellcheck = false
-    }, [props.uuid])
+    }, [props.uuid, showSettings])
+
+    useEffect(() => {
+        if (!isTauri()) {
+            return undefined
+        }
+        let unlisten: (() => void) | undefined = undefined
+        const appWindow = getCurrent()
+        appWindow
+            .listen('tauri://focus', () => {
+                const editor = editorRef.current
+                if (!editor) {
+                    return
+                }
+                editor.focus()
+            })
+            .then((cb) => {
+                unlisten = cb
+            })
+        return () => {
+            unlisten?.()
+        }
+    }, [])
 
     const [highlightWords, setHighlightWords] = useState<string[]>([])
 
@@ -683,7 +718,7 @@ function InnerTranslator(props: IInnerTranslatorProps) {
 
     const styles = useStyles({ theme, themeType, isDesktopApp: isDesktopApp(), showLogo })
     const [isLoading, setIsLoading] = useState(false)
-    const { editableText, originalText, detectedOriginalText } = useTranslatorStore()
+    const { editableText, originalText } = useTranslatorStore()
     const [isSpeakingEditableText, setIsSpeakingEditableText] = useState(false)
     const [tokenCount, setTokenCount] = useState(0)
     const [translatedText, setTranslatedText] = useState('')
@@ -701,8 +736,8 @@ function InnerTranslator(props: IInnerTranslatorProps) {
     }, [props.text, props.uuid])
 
     useEffect(() => {
-        setEditableText(detectedOriginalText)
-    }, [detectedOriginalText])
+        setEditableText(originalText)
+    }, [originalText])
 
     useLazyEffect(
         () => {
@@ -757,25 +792,38 @@ function InnerTranslator(props: IInnerTranslatorProps) {
         }
 
         ;(async () => {
-            const sourceLang_ = await detectLang(originalText)
-            setSourceLang(sourceLang_)
+            const newSourceLang = await detectLang(originalText)
+            setSourceLang(newSourceLang)
             setTargetLang((targetLang_) => {
-                if (isTranslate && (!stopAutomaticallyChangeTargetLang.current || sourceLang_ === targetLang_)) {
-                    return (
-                        (sourceLang_ === 'zh-Hans' || sourceLang_ === 'zh-Hant'
-                            ? 'en'
-                            : (settings?.defaultTargetLanguage as LangCode | undefined)) ?? 'en'
-                    )
-                }
-                if (!targetLang_) {
-                    if (settings?.defaultTargetLanguage) {
-                        return settings.defaultTargetLanguage as LangCode
+                const newTargetLang = (() => {
+                    if (isTranslate && (!stopAutomaticallyChangeTargetLang.current || newSourceLang === targetLang_)) {
+                        return (
+                            (newSourceLang === 'zh-Hans' || newSourceLang === 'zh-Hant'
+                                ? 'en'
+                                : (settings?.defaultTargetLanguage as LangCode | undefined)) ?? 'en'
+                        )
                     }
-                    return sourceLang_
-                }
-                return targetLang_
+                    if (!targetLang_) {
+                        if (settings?.defaultTargetLanguage) {
+                            return settings.defaultTargetLanguage as LangCode
+                        }
+                        return newSourceLang
+                    }
+                    return targetLang_
+                })()
+                setTranslateDeps((oldV) => {
+                    const newV = {
+                        sourceLang: newSourceLang,
+                        targetLang: newTargetLang,
+                        text: originalText,
+                    }
+                    if (_.isEqual(oldV, newV)) {
+                        return oldV
+                    }
+                    return newV
+                })
+                return newTargetLang
             })
-            setDetectedOriginalText(originalText)
         })()
     }, [originalText, isTranslate, settingsIsUndefined, settings?.defaultTargetLanguage, props.uuid])
 
@@ -879,13 +927,25 @@ function InnerTranslator(props: IInnerTranslatorProps) {
             console.info(`Auto collecting word: ${editableText}`)
         }
     }, [isWordMode, isAutoCollectOn, editableText, onWordCollection, checkWordCollection])
+
     const autoCollectRef = useRef(autoCollect)
     useEffect(() => {
         autoCollectRef.current = autoCollect
     }, [autoCollect])
 
+    const [translateDeps, setTranslateDeps] = useState<{
+        sourceLang?: LangCode
+        targetLang?: LangCode
+        text?: string
+    }>({
+        sourceLang: undefined,
+        targetLang: undefined,
+        text: undefined,
+    })
+
     const translateText = useCallback(
-        async (text: string, selectedWord: string, writing: boolean, signal: AbortSignal) => {
+        async (selectedWord: string, signal: AbortSignal) => {
+            const { text, sourceLang, targetLang } = translateDeps
             if (!text || !sourceLang || !targetLang || !activateAction?.id) {
                 return
             }
@@ -920,7 +980,11 @@ function InnerTranslator(props: IInnerTranslatorProps) {
                         })
                     } else {
                         setActionStr((actionStr_) => {
-                            setErrorMessage(`${actionStr_} failed: ${reason}`)
+                            let errMsg = `${actionStr_} failed, finish_reason: ${reason}`
+                            if (reason === 'content_filter') {
+                                errMsg = `很抱歉！由于您使用的是中国的 LLM，所以会有敏感词限制，很不幸这个请求已经触发了敏感词，请您接受这个结果。`
+                            }
+                            setErrorMessage(errMsg)
                             return 'Error'
                         })
                     }
@@ -957,7 +1021,7 @@ function InnerTranslator(props: IInnerTranslatorProps) {
                     onStatusCode: (statusCode) => {
                         setIsNotLogin(statusCode === 401 || statusCode === 403)
                     },
-                    onMessage: (message) => {
+                    onMessage: async (message) => {
                         if (!message.content) {
                             return
                         }
@@ -999,8 +1063,7 @@ function InnerTranslator(props: IInnerTranslatorProps) {
             }
         },
         [
-            sourceLang,
-            targetLang,
+            translateDeps,
             activateAction?.id,
             currentTranslateMode,
             settings?.provider,
@@ -1014,27 +1077,40 @@ function InnerTranslator(props: IInnerTranslatorProps) {
 
     const translateControllerRef = useRef<AbortController | null>(null)
     useEffect(() => {
-        if (editableText !== detectedOriginalText) {
-            return
-        }
         translateControllerRef.current = new AbortController()
         const { signal } = translateControllerRef.current
-        translateText(detectedOriginalText, selectedWord, props.writing ?? false, signal)
+        translateText(selectedWord, signal)
         return () => {
             translateControllerRef.current?.abort()
         }
-    }, [translateText, editableText, detectedOriginalText, selectedWord, props.writing])
+    }, [translateText, selectedWord])
 
     useEffect(() => {
         if (!props.defaultShowSettings) {
             return
         }
-        if (
-            settings &&
-            ((settings.provider === 'ChatGPT' && !settings.apiModel) ||
-                (settings.provider !== 'ChatGPT' && !settings.apiKeys))
-        ) {
+        if (!settings) {
+            return
+        }
+        if (settings.provider === 'OpenAI' && !settings.apiKeys) {
             setShowSettings(true)
+            return
+        }
+        if (settings.provider === 'Azure' && !settings.azureAPIKeys) {
+            setShowSettings(true)
+            return
+        }
+        if (settings.provider === 'ChatGPT' && !settings.chatgptModel) {
+            setShowSettings(true)
+            return
+        }
+        if (settings.provider === 'MiniMax' && !settings.miniMaxAPIKey) {
+            setShowSettings(true)
+            return
+        }
+        if (settings.provider === 'Moonshot' && !settings.moonshotAPIKey) {
+            setShowSettings(true)
+            return
         }
     }, [props.defaultShowSettings, settings])
 
@@ -1059,8 +1135,6 @@ function InnerTranslator(props: IInnerTranslatorProps) {
             return
         }
         ;(async () => {
-            const { listen } = await import('@tauri-apps/api/event')
-            const { fs } = await import('@tauri-apps/api')
             listen('tauri://file-drop', async (e: Event<string>) => {
                 if (e.payload.length !== 1) {
                     alert('Only one file can be uploaded at a time.')
@@ -1081,7 +1155,7 @@ function InnerTranslator(props: IInnerTranslatorProps) {
 
                 const worker = createWorker()
 
-                const binaryFile = await fs.readBinaryFile(filePath)
+                const binaryFile = await readBinaryFile(filePath)
 
                 const file = new Blob([binaryFile.buffer], {
                     type: `image/${fileExtension}`,
@@ -1232,6 +1306,45 @@ function InnerTranslator(props: IInnerTranslatorProps) {
         setActionStr('Stopped')
     }
 
+    const [isScrolledToTop, setIsScrolledToTop] = useState(false)
+    const [isScrolledToBottom, setIsScrolledToBottom] = useState(false)
+
+    useEffect(() => {
+        const isOnTop = () => {
+            return document.documentElement.scrollTop === 0
+        }
+        const isOnBottom = () => {
+            const scrollTop = document.documentElement.scrollTop
+
+            const windowHeight = window.innerHeight
+
+            const documentHeight = document.documentElement.scrollHeight
+
+            return scrollTop + windowHeight >= documentHeight
+        }
+
+        setIsScrolledToTop(isOnTop())
+        setIsScrolledToBottom(isOnBottom())
+
+        const onScroll = () => {
+            setIsScrolledToTop(isOnTop())
+            setIsScrolledToBottom(isOnBottom())
+        }
+
+        window.addEventListener('scroll', onScroll)
+        window.addEventListener('resize', onScroll)
+        const observer = new MutationObserver(onScroll)
+        observer.observe(document.body, {
+            childList: true,
+            subtree: true,
+        })
+        return () => {
+            window.removeEventListener('scroll', onScroll)
+            window.removeEventListener('resize', onScroll)
+            observer.disconnect()
+        }
+    }, [showSettings])
+
     return (
         <div
             className={clsx(styles.popupCard, {
@@ -1251,7 +1364,6 @@ function InnerTranslator(props: IInnerTranslatorProps) {
             >
                 <InnerSettings
                     onSave={(oldSettings) => {
-                        setShowSettings(false)
                         props.onSettingsSave?.(oldSettings)
                     }}
                 />
@@ -1268,6 +1380,7 @@ function InnerTranslator(props: IInnerTranslatorProps) {
                         data-tauri-drag-region
                         style={{
                             cursor: isDesktopApp() ? 'default' : showLogo ? 'move' : 'default',
+                            boxShadow: isDesktopApp() && !isScrolledToTop ? theme.lighting.shadow600 : undefined,
                         }}
                     >
                         {showLogo && <LogoWithText ref={logoWithTextRef} />}
@@ -1289,13 +1402,19 @@ function InnerTranslator(props: IInnerTranslatorProps) {
                                     onChange={({ value }) => {
                                         const langId = value.length > 0 ? value[0].id : sourceLangOptions[0].id
                                         setSourceLang(langId as LangCode)
+                                        setTranslateDeps((v) => {
+                                            return {
+                                                ...v,
+                                                sourceLang: langId as LangCode,
+                                            }
+                                        })
                                     }}
                                 />
                             </div>
                             <div
                                 className={styles.arrow}
                                 onClick={() => {
-                                    setDetectedOriginalText(translatedText)
+                                    setOriginalText(translatedText)
                                     setSourceLang(targetLang ?? 'en')
                                     setTargetLang(sourceLang)
                                 }}
@@ -1324,6 +1443,12 @@ function InnerTranslator(props: IInnerTranslatorProps) {
                                         stopAutomaticallyChangeTargetLang.current = true
                                         const langId = value.length > 0 ? value[0].id : targetLangOptions[0].id
                                         setTargetLang(langId as LangCode)
+                                        setTranslateDeps((v) => {
+                                            return {
+                                                ...v,
+                                                targetLang: langId as LangCode,
+                                            }
+                                        })
                                     }}
                                 />
                             </div>
@@ -1383,7 +1508,7 @@ function InnerTranslator(props: IInnerTranslatorProps) {
                                 )
                             })}
                         </div>
-                        {props.showSettings && (
+                        {props.showSettingsIcon && (
                             <div className={styles.popupCardHeaderMoreActionsContainer}>
                                 <StatefulPopover
                                     autoFocus={false}
@@ -1401,11 +1526,11 @@ function InnerTranslator(props: IInnerTranslatorProps) {
                                                 const actionID = item.id
                                                 if (actionID === '__manager__') {
                                                     if (isTauri()) {
-                                                        const { invoke } = await import('@tauri-apps/api')
+                                                        const { invoke } = await import('@tauri-apps/api/primitives')
                                                         if (!navigator.userAgent.includes('Windows')) {
                                                             await invoke('show_action_manager_window')
                                                         } else {
-                                                            const { LogicalSize, WebviewWindow } = await import(
+                                                            const { LogicalSize, Window: WebviewWindow } = await import(
                                                                 '@tauri-apps/api/window'
                                                             )
                                                             const windowLabel = 'action_manager'
@@ -1600,9 +1725,8 @@ function InnerTranslator(props: IInnerTranslatorProps) {
                                                 display: 'flex',
                                                 flexDirection: 'row',
                                                 alignItems: 'center',
-                                                paddingTop:
-                                                    editableText && editableText !== detectedOriginalText ? 8 : 0,
-                                                height: editableText && editableText !== detectedOriginalText ? 28 : 0,
+                                                paddingTop: editableText && editableText !== originalText ? 8 : 0,
+                                                height: editableText && editableText !== originalText ? 28 : 0,
                                                 transition: 'all 0.3s linear',
                                                 overflow: 'hidden',
                                             }}
@@ -1758,7 +1882,7 @@ function InnerTranslator(props: IInnerTranslatorProps) {
                                 )}
                             </div>
                         </div>
-                        {detectedOriginalText !== '' && (
+                        {originalText !== '' && (
                             <div
                                 className={styles.popupCardTranslatedContainer}
                                 ref={translatedContainerRef}
@@ -1934,12 +2058,36 @@ function InnerTranslator(props: IInnerTranslatorProps) {
                     </div>
                 </div>
             </div>
-            {props.showSettings && (
-                <div className={styles.footer}>
+            {props.showSettingsIcon && (
+                <div
+                    className={styles.footer}
+                    style={{
+                        boxShadow: isScrolledToBottom ? undefined : theme.lighting.shadow700,
+                    }}
+                >
                     <Tooltip content={showSettings ? t('Go to Translator') : t('Go to Settings')} placement='right'>
-                        <div onClick={() => setShowSettings((s) => !s)}>
-                            {showSettings ? <AiOutlineTranslation size={15} /> : <IoSettingsOutline size={15} />}
-                        </div>
+                        <Button
+                            size='mini'
+                            kind='tertiary'
+                            onClick={(e) => {
+                                e.stopPropagation()
+                                e.preventDefault()
+                                setShowSettings((s) => !s)
+                            }}
+                        >
+                            <div
+                                style={{
+                                    display: 'flex',
+                                    flexDirection: 'row',
+                                    alignItems: 'center',
+                                    gap: 6,
+                                    fontSize: '11px',
+                                }}
+                            >
+                                {showSettings ? <TiArrowBack size={15} /> : <IoSettingsOutline size={15} />}
+                                {showSettings ? t('Go back') : ''}
+                            </div>
+                        </Button>
                     </Tooltip>
                 </div>
             )}
@@ -1996,7 +2144,7 @@ function InnerTranslator(props: IInnerTranslatorProps) {
                     />
                 </ModalHeader>
                 <ModalBody>
-                    <ActionManager draggable={props.showSettings} />
+                    <ActionManager draggable={props.showSettingsIcon} />
                 </ModalBody>
             </Modal>
             <Toaster />

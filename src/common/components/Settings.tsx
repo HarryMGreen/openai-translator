@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useReducer, useState } from 'react'
 import _ from 'underscore'
+import { Tabs, Tab, StyledTabList, StyledTabPanel } from 'baseui-sd/tabs-motion'
+import { SlSpeech } from 'react-icons/sl'
 import icon from '../assets/images/icon-large.png'
 import beams from '../assets/images/beams.jpg'
 import wechat from '../assets/images/wechat.png'
@@ -21,13 +23,13 @@ import { createUseStyles } from 'react-jss'
 import clsx from 'clsx'
 import { ISettings, IThemedStyleProps, ThemeType } from '../types'
 import { useTheme } from '../hooks/useTheme'
-import { IoCloseCircle, IoRefreshSharp } from 'react-icons/io5'
+import { IoCloseCircle, IoRefreshSharp, IoSettingsOutline } from 'react-icons/io5'
 import { useTranslation } from 'react-i18next'
 import AppConfig from '../../../package.json'
 import { useSettings } from '../hooks/useSettings'
 import { defaultTTSProvider, langCode2TTSLang } from '../tts'
 import { RiDeleteBin5Line } from 'react-icons/ri'
-import { IoMdAdd } from 'react-icons/io'
+import { IoIosSave, IoMdAdd } from 'react-icons/io'
 import { TTSProvider } from '../tts/types'
 import { getEdgeVoices } from '../tts/edge-tts'
 import { useThemeType } from '../hooks/useThemeType'
@@ -37,6 +39,10 @@ import { actionService } from '../services/action'
 import { GlobalSuspense } from './GlobalSuspense'
 import { Modal, ModalBody, ModalHeader } from 'baseui-sd/modal'
 import { Provider, getEngine } from '../engines'
+import { IModel } from '../engines/interfaces'
+import { PiTextbox } from 'react-icons/pi'
+import { BsKeyboard } from 'react-icons/bs'
+import { Cell, Grid } from 'baseui-sd/layout-grid'
 
 const langOptions: Value = supportedLanguages.reduce((acc, [id, label]) => {
     return [
@@ -196,6 +202,7 @@ const useTTSSettingsStyles = createUseStyles({
         alignItems: 'center',
         gap: '6px',
         marginTop: '10px',
+        width: '100%',
     },
     providerSelector: {
         marginTop: '10px',
@@ -424,12 +431,28 @@ function TTSVoicesSettings({ value, onChange, onBlur }: TTSVoicesSettingsProps) 
                             size='compact'
                             clearable={false}
                             options={getLangOptions(lang)}
+                            overrides={{
+                                Root: {
+                                    style: {
+                                        width: '140px',
+                                        flexShrink: 0,
+                                    },
+                                },
+                            }}
                             onChange={({ option }) => handleChangeLang(lang, option?.id as string)}
                             value={[{ id: lang }]}
                         />
                         <Select
                             size='compact'
                             options={getVoiceOptions(lang)}
+                            overrides={{
+                                Root: {
+                                    style: {
+                                        flexShrink: 1,
+                                        minWidth: '200px',
+                                    },
+                                },
+                            }}
                             value={[{ id: voice }]}
                             onChange={({ option }) => handleChangeVoice(lang, option?.id as string)}
                             clearable={false}
@@ -532,52 +555,84 @@ function Ii18nSelector({ value, onChange, onBlur }: Ii18nSelectorProps) {
 }
 
 interface APIModelSelectorProps {
+    currentProvider: Provider
     provider: Provider
+    apiKey?: string
     value?: string
     onChange?: (value: string) => void
     onBlur?: () => void
 }
 
 interface APIModelOption {
-    label: string
+    label: React.ReactNode
     id: string
 }
 
-function APIModelSelector({ provider, value, onChange, onBlur }: APIModelSelectorProps) {
+function APIModelSelector({ currentProvider, provider, apiKey, value, onChange, onBlur }: APIModelSelectorProps) {
     const { t } = useTranslation()
     const [isLoading, setIsLoading] = useState(false)
     const [options, setOptions] = useState<APIModelOption[]>([])
     const [errMsg, setErrMsg] = useState<string>()
     const [isChatGPTNotLogin, setIsChatGPTNotLogin] = useState(false)
     const [refreshFlag, refresh] = useReducer((x: number) => x + 1, 0)
+    const { theme } = useTheme()
 
     useEffect(() => {
         setIsChatGPTNotLogin(false)
         setErrMsg('')
         setOptions([])
+        if (provider !== currentProvider) {
+            return
+        }
         const engine = getEngine(provider)
         setIsLoading(true)
-        try {
-            ;(async () => {
-                const models = await engine.listModels()
+        ;(async () => {
+            try {
+                const models = await engine.listModels(apiKey)
                 setOptions(
-                    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                    models.map((model: any) => ({
-                        label: model.name,
+                    models.map((model: IModel) => ({
+                        label: (
+                            <div
+                                style={{
+                                    display: 'flex',
+                                    flexDirection: 'column',
+                                    gap: 3,
+                                }}
+                            >
+                                <div
+                                    style={{
+                                        fontSize: '14px',
+                                        color: theme.colors.contentPrimary,
+                                    }}
+                                >
+                                    {model.name}
+                                </div>
+                                {model.description && (
+                                    <div
+                                        style={{
+                                            fontSize: '12px',
+                                            color: theme.colors.contentTertiary,
+                                        }}
+                                    >
+                                        {model.description}
+                                    </div>
+                                )}
+                            </div>
+                        ),
                         id: model.id,
                     }))
                 )
-            })()
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        } catch (e: any) {
-            if (provider === 'ChatGPT' && JSON.stringify(e).includes('not login')) {
-                setIsChatGPTNotLogin(true)
+                // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            } catch (e: any) {
+                if (provider === 'ChatGPT' && e.message && e.message.includes('not login')) {
+                    setIsChatGPTNotLogin(true)
+                }
+                setErrMsg(e.message)
+            } finally {
+                setIsLoading(false)
             }
-            setErrMsg(JSON.stringify(e))
-        } finally {
-            setIsLoading(false)
-        }
-    }, [provider, refreshFlag])
+        })()
+    }, [apiKey, currentProvider, provider, refreshFlag, theme.colors.contentPrimary, theme.colors.contentTertiary])
 
     return (
         <div>
@@ -638,7 +693,11 @@ function APIModelSelector({ provider, value, onChange, onBlur }: APIModelSelecto
                     </div>
                 )}
                 {isChatGPTNotLogin && (
-                    <div>
+                    <div
+                        style={{
+                            color: theme.colors.contentPrimary,
+                        }}
+                    >
                         <span>{t('Please login to ChatGPT Web')}: </span>
                         <a href='https://chat.openai.com' target='_blank' rel='noreferrer' style={linkStyle}>
                             Login
@@ -766,6 +825,33 @@ function RunAtStartupCheckbox({ value, onChange, onBlur }: RunAtStartupCheckboxP
         />
     )
 }
+
+const useStyles = createUseStyles({
+    footer: (props: IThemedStyleProps) =>
+        props.isDesktopApp
+            ? {
+                  color: props.theme.colors.contentSecondary,
+                  position: 'fixed',
+                  width: '100%',
+                  height: '42px',
+                  cursor: 'pointer',
+                  left: '0',
+                  bottom: '0',
+                  paddingLeft: '6px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  background: props.themeType === 'dark' ? 'rgba(31, 31, 31, 0.5)' : 'rgba(255, 255, 255, 0.5)',
+                  backdropFilter: 'blur(10px)',
+              }
+            : {
+                  color: props.theme.colors.contentSecondary,
+                  position: 'absolute',
+                  cursor: 'pointer',
+                  bottom: '16px',
+                  left: '6px',
+                  lineHeight: '1',
+              },
+})
 
 const useHotkeyRecorderStyles = createUseStyles({
     'hotkeyRecorder': (props: IThemedStyleProps) => ({
@@ -909,6 +995,7 @@ function ProviderSelector({ value, onChange }: IProviderSelectorProps) {
     const options = utils.isDesktopApp()
         ? ([
               { label: 'OpenAI', id: 'OpenAI' },
+              // { label: 'ChatGPT (Web)', id: 'ChatGPT' },
               { label: 'Azure', id: 'Azure' },
               { label: 'MiniMax', id: 'MiniMax' },
               { label: 'Moonshot', id: 'Moonshot' },
@@ -950,6 +1037,7 @@ function ProviderSelector({ value, onChange }: IProviderSelectorProps) {
 const { Form, FormItem, useForm } = createForm<ISettings>()
 
 interface IInnerSettingsProps {
+    showFooter?: boolean
     onSave?: (oldSettings: ISettings) => void
 }
 
@@ -970,10 +1058,10 @@ export function Settings({ engine, ...props }: ISettingsProps) {
     )
 }
 
-export function InnerSettings({ onSave }: IInnerSettingsProps) {
-    const { theme } = useTheme()
+export function InnerSettings({ onSave, showFooter = false }: IInnerSettingsProps) {
+    const { theme, themeType } = useTheme()
 
-    const { setThemeType } = useThemeType()
+    const { refreshThemeType } = useThemeType()
 
     const { t } = useTranslation()
 
@@ -981,6 +1069,7 @@ export function InnerSettings({ onSave }: IInnerSettingsProps) {
 
     const [loading, setLoading] = useState(false)
     const [values, setValues] = useState<ISettings>({
+        automaticCheckForUpdates: false,
         apiKeys: '',
         apiURL: utils.defaultAPIURL,
         apiURLPath: utils.defaultAPIURLPath,
@@ -1000,6 +1089,7 @@ export function InnerSettings({ onSave }: IInnerSettingsProps) {
         defaultTargetLanguage: utils.defaultTargetLanguage,
         alwaysShowIcons: !isTauri,
         hotkey: '',
+        displayWindowHotkey: '',
         i18n: utils.defaulti18n,
         restorePreviousPosition: false,
         selectInputElementsText: utils.defaultSelectInputElementsText,
@@ -1021,7 +1111,7 @@ export function InnerSettings({ onSave }: IInnerSettingsProps) {
         if (settings) {
             ;(async () => {
                 if (isTauri) {
-                    const { isEnabled: autostartIsEnabled } = await import('tauri-plugin-autostart-api')
+                    const { isEnabled: autostartIsEnabled } = await import('@tauri-apps/plugin-autostart')
                     settings.runAtStartup = await autostartIsEnabled()
                 }
                 setValues(settings)
@@ -1036,9 +1126,6 @@ export function InnerSettings({ onSave }: IInnerSettingsProps) {
 
     const onSubmit = useCallback(
         async (data: ISettings) => {
-            if (data.themeType) {
-                setThemeType(data.themeType)
-            }
             setLoading(true)
             const oldSettings = await utils.getSettings()
             if (isTauri) {
@@ -1047,7 +1134,7 @@ export function InnerSettings({ onSave }: IInnerSettingsProps) {
                         enable: autostartEnable,
                         disable: autostartDisable,
                         isEnabled: autostartIsEnabled,
-                    } = await import('tauri-plugin-autostart-api')
+                    } = await import('@tauri-apps/plugin-autostart')
                     if (data.runAtStartup) {
                         await autostartEnable()
                     } else {
@@ -1060,6 +1147,10 @@ export function InnerSettings({ onSave }: IInnerSettingsProps) {
             }
             await utils.setSettings(data)
 
+            if (data.themeType) {
+                refreshThemeType()
+            }
+
             toast(t('Saved'), {
                 icon: '👍',
                 duration: 3000,
@@ -1068,7 +1159,7 @@ export function InnerSettings({ onSave }: IInnerSettingsProps) {
             setSettings(data)
             onSave?.(oldSettings)
         },
-        [isTauri, onSave, setSettings, setThemeType, t]
+        [isTauri, onSave, setSettings, refreshThemeType, t]
     )
 
     const onBlur = useCallback(async () => {
@@ -1081,12 +1172,117 @@ export function InnerSettings({ onSave }: IInnerSettingsProps) {
     const isDesktopApp = utils.isDesktopApp()
     const isMacOS = navigator.userAgent.includes('Mac OS X')
 
+    const styles = useStyles({ theme, themeType, isDesktopApp })
+
+    const [isScrolledToBottom, setIsScrolledToBottom] = useState(false)
+
+    useEffect(() => {
+        if (!showFooter) {
+            return undefined
+        }
+        const isOnBottom = () => {
+            const scrollTop = document.documentElement.scrollTop
+
+            const windowHeight = window.innerHeight
+
+            const documentHeight = document.documentElement.scrollHeight
+
+            return scrollTop + windowHeight >= documentHeight
+        }
+
+        setIsScrolledToBottom(isOnBottom())
+
+        const onScroll = () => {
+            setIsScrolledToBottom(isOnBottom())
+        }
+
+        window.addEventListener('scroll', onScroll)
+        window.addEventListener('resize', onScroll)
+        const observer = new MutationObserver(onScroll)
+        observer.observe(document.body, {
+            childList: true,
+            subtree: true,
+        })
+        return () => {
+            window.removeEventListener('scroll', onScroll)
+            window.removeEventListener('resize', onScroll)
+            observer.disconnect()
+        }
+    }, [showFooter])
+
     const [showBuyMeACoffee, setShowBuyMeACoffee] = useState(false)
+
+    const [activeTab, setActiveTab] = useState(0)
+
+    const [isScrolled, setIsScrolled] = useState(window.scrollY > 0)
+
+    useEffect(() => {
+        const onScroll = () => {
+            setIsScrolled(window.scrollY > 0)
+        }
+        window.addEventListener('scroll', onScroll)
+        return () => {
+            window.removeEventListener('scroll', onScroll)
+        }
+    }, [])
+
+    const tabsOverrides = {
+        Root: {
+            style: {
+                '& button:hover': {
+                    background: 'transparent !important',
+                },
+            },
+        },
+        TabList: {
+            style: () => ({}),
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            component: function TabsListOverride(props: any) {
+                return (
+                    <Grid behavior='fluid'>
+                        <Cell span={12}>
+                            <StyledTabList {...props} />
+                        </Cell>
+                    </Grid>
+                )
+            },
+        },
+    }
+
+    const tabOverrides = {
+        TabPanel: {
+            style: {
+                padding: '0px',
+            },
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            component: function TabsListOverride(props: any) {
+                return (
+                    <Grid>
+                        <Cell span={[1, 2, 3]}>
+                            <StyledTabPanel {...props} />
+                        </Cell>
+                    </Grid>
+                )
+            },
+        },
+        Tab: {
+            style: {
+                'color': theme.colors.black,
+                'background': 'transparent',
+                ':hover': {
+                    background: 'rgba(255, 255, 255, 0.35) !important',
+                },
+                ':active': {
+                    background: 'rgba(255, 255, 255, 0.45) !important',
+                },
+            },
+        },
+    }
 
     return (
         <div
             style={{
-                paddingTop: isDesktopApp ? '98px' : undefined,
+                paddingTop: isDesktopApp ? '136px' : undefined,
                 paddingBottom: isDesktopApp ? '32px' : undefined,
                 background: theme.colors.backgroundPrimary,
                 minWidth: isDesktopApp ? 450 : 400,
@@ -1103,54 +1299,108 @@ export function InnerSettings({ onSave }: IInnerSettingsProps) {
                     zIndex: 1,
                     width: '100%',
                     display: 'flex',
-                    flexDirection: 'row',
-                    alignItems: 'center',
-                    padding: '15px 25px',
-                    color: '#333',
+                    flexDirection: 'column',
                     background: `url(${utils.getAssetUrl(beams)}) no-repeat center center`,
-                    gap: 10,
                     boxSizing: 'border-box',
+                    boxShadow: isScrolled ? theme.lighting.shadow600 : undefined,
                 }}
                 data-tauri-drag-region
             >
-                <img width='22' src={utils.getAssetUrl(icon)} alt='logo' />
-                <h2
+                <div
                     style={{
                         display: 'flex',
                         flexDirection: 'row',
                         alignItems: 'center',
-                        gap: 6,
+                        color: '#333',
+                        gap: 10,
+                        padding: '15px 25px 0 25px',
                     }}
                 >
-                    OpenAI Translator
-                    {AppConfig?.version ? (
-                        <a
-                            href='https://github.com/yetone/openai-translator/releases'
-                            target='_blank'
-                            rel='noreferrer'
-                            style={linkStyle}
-                        >
-                            {AppConfig.version}
-                        </a>
-                    ) : null}
-                </h2>
-                <div
-                    style={{
-                        flexGrow: 1,
-                    }}
-                />
-                <div>
-                    <Button
-                        kind='secondary'
-                        size='mini'
-                        onClick={(e) => {
-                            e.stopPropagation()
-                            setShowBuyMeACoffee(true)
+                    <img width='22' src={utils.getAssetUrl(icon)} alt='logo' />
+                    <h2
+                        style={{
+                            display: 'flex',
+                            flexDirection: 'row',
+                            alignItems: 'center',
+                            gap: 6,
                         }}
                     >
-                        {'❤️  ' + t('Buy me a coffee')}
-                    </Button>
+                        OpenAI Translator
+                        {AppConfig?.version ? (
+                            <a
+                                href='https://github.com/yetone/openai-translator/releases'
+                                target='_blank'
+                                rel='noreferrer'
+                                style={linkStyle}
+                            >
+                                {AppConfig.version}
+                            </a>
+                        ) : null}
+                    </h2>
+                    <div
+                        style={{
+                            flexGrow: 1,
+                        }}
+                    />
+                    <div>
+                        <Button
+                            kind='secondary'
+                            size='mini'
+                            onClick={(e) => {
+                                e.stopPropagation()
+                                setShowBuyMeACoffee(true)
+                            }}
+                        >
+                            {'❤️  ' + t('Buy me a coffee')}
+                        </Button>
+                    </div>
                 </div>
+                <Tabs
+                    overrides={tabsOverrides}
+                    activeKey={activeTab}
+                    onChange={({ activeKey }) => {
+                        setActiveTab(parseInt(activeKey as string, 10))
+                    }}
+                    fill='fixed'
+                    renderAll
+                >
+                    <Tab
+                        title={t('General')}
+                        artwork={() => {
+                            return <IoSettingsOutline size={14} />
+                        }}
+                        overrides={tabOverrides}
+                    />
+                    <Tab
+                        title={t('TTS')}
+                        artwork={() => {
+                            return <SlSpeech size={14} />
+                        }}
+                        overrides={tabOverrides}
+                    />
+                    <Tab
+                        title={t('Writing')}
+                        artwork={() => {
+                            return <PiTextbox size={14} />
+                        }}
+                        overrides={tabOverrides}
+                    />
+                    <Tab
+                        title={t('Shortcuts')}
+                        artwork={() => {
+                            return <BsKeyboard size={14} />
+                        }}
+                        overrides={{
+                            ...tabOverrides,
+                            Tab: {
+                                ...tabOverrides.Tab,
+                                props: {
+                                    'data-testid': 'shortcuts',
+                                },
+                            },
+                        }}
+                    />
+                </Tabs>
             </nav>
             {!isDesktopApp && (
                 <div
@@ -1187,289 +1437,376 @@ export function InnerSettings({ onSave }: IInnerSettingsProps) {
                 initialValues={values}
                 onValuesChange={onChange}
             >
-                <FormItem name='i18n' label={t('i18n')}>
-                    <Ii18nSelector onBlur={onBlur} />
-                </FormItem>
-                <FormItem name='provider' label={t('Default service provider')} required>
-                    <ProviderSelector />
-                </FormItem>
-                <div
-                    style={{
-                        display: values.provider === 'OpenAI' ? 'block' : 'none',
-                    }}
-                >
-                    <FormItem
-                        required={values.provider === 'OpenAI'}
-                        name='apiKeys'
-                        label={t('API Key')}
-                        caption={
-                            <div>
-                                {t('Go to the')}{' '}
-                                <a
-                                    target='_blank'
-                                    href='https://platform.openai.com/account/api-keys'
-                                    rel='noreferrer'
-                                    style={linkStyle}
-                                >
-                                    {t('OpenAI page')}
-                                </a>{' '}
-                                {t(
-                                    'to get your API Key. You can separate multiple API Keys with English commas to achieve quota doubling and load balancing.'
-                                )}
-                            </div>
-                        }
+                <div>
+                    <div
+                        style={{
+                            display: activeTab === 0 ? 'block' : 'none',
+                        }}
                     >
-                        <Input autoFocus type='password' size='compact' name='apiKey' onBlur={onBlur} />
-                    </FormItem>
-                    <FormItem name='apiModel' label={t('API Model')} required={values.provider === 'OpenAI'}>
-                        <APIModelSelector provider='OpenAI' onBlur={onBlur} />
-                    </FormItem>
-                    <FormItem name='apiURL' label={t('API URL')} required={values.provider === 'OpenAI'}>
-                        <Input size='compact' onBlur={onBlur} />
-                    </FormItem>
-                    <FormItem name='apiURLPath' label={t('API URL Path')} required={values.provider === 'OpenAI'}>
-                        <Input size='compact' />
-                    </FormItem>
-                </div>
-                <div
-                    style={{
-                        display: values.provider === 'Azure' ? 'block' : 'none',
-                    }}
-                >
-                    <FormItem
-                        required={values.provider === 'Azure'}
-                        name='azureAPIKeys'
-                        label={t('API Key')}
-                        caption={
-                            <div>
-                                {t('Go to the')}{' '}
-                                <a
-                                    target='_blank'
-                                    href='https://learn.microsoft.com/en-us/azure/cognitive-services/openai/chatgpt-quickstart?tabs=command-line&pivots=rest-api#retrieve-key-and-endpoint'
-                                    rel='noreferrer'
-                                    style={linkStyle}
-                                >
-                                    {t('Azure OpenAI Service page')}
-                                </a>{' '}
-                                {t(
-                                    'to get your API Key. You can separate multiple API Keys with English commas to achieve quota doubling and load balancing.'
-                                )}
-                            </div>
-                        }
-                    >
-                        <Input autoFocus type='password' size='compact' onBlur={onBlur} />
-                    </FormItem>
-                    <FormItem name='azureAPIModel' label={t('API Model')} required={values.provider === 'Azure'}>
-                        <APIModelSelector provider='OpenAI' onBlur={onBlur} />
-                    </FormItem>
-                    <FormItem name='azureAPIURL' label={t('API URL')} required={values.provider === 'Azure'}>
-                        <Input size='compact' onBlur={onBlur} />
-                    </FormItem>
-                    <FormItem name='azureAPIURLPath' label={t('API URL Path')} required={values.provider === 'Azure'}>
-                        <Input size='compact' />
-                    </FormItem>
-                </div>
-                <div
-                    style={{
-                        display: values.provider === 'ChatGPT' ? 'block' : 'none',
-                    }}
-                >
-                    <FormItem name='chatgptModel' label={t('API Model')} required={values.provider === 'ChatGPT'}>
-                        <APIModelSelector provider='ChatGPT' onBlur={onBlur} />
-                    </FormItem>
-                </div>
-                <div
-                    style={{
-                        display: values.provider === 'MiniMax' ? 'block' : 'none',
-                    }}
-                >
-                    <FormItem
-                        required={values.provider === 'MiniMax'}
-                        name='miniMaxGroupID'
-                        label='MiniMax Group ID'
-                        caption={
-                            <div>
-                                {t('Go to the')}{' '}
-                                <a
-                                    target='_blank'
-                                    href='https://api.minimax.chat/user-center/basic-information'
-                                    rel='noreferrer'
-                                    style={linkStyle}
-                                >
-                                    {t('MiniMax page')}
-                                </a>{' '}
-                                {t('to get your Group ID.')}
-                            </div>
-                        }
-                    >
-                        <Input size='compact' onBlur={onBlur} />
-                    </FormItem>
-                    <FormItem
-                        required={values.provider === 'MiniMax'}
-                        name='miniMaxAPIKey'
-                        label='MiniMax API Key'
-                        caption={
-                            <div>
-                                {t('Go to the')}{' '}
-                                <a
-                                    target='_blank'
-                                    href='https://api.minimax.chat/user-center/basic-information/interface-key'
-                                    rel='noreferrer'
-                                    style={linkStyle}
-                                >
-                                    {t('MiniMax page')}
-                                </a>{' '}
-                                {t('to get your API Key.')}
-                            </div>
-                        }
-                    >
-                        <Input autoFocus type='password' size='compact' onBlur={onBlur} />
-                    </FormItem>
-                </div>
-                <div
-                    style={{
-                        display: values.provider === 'Moonshot' ? 'block' : 'none',
-                    }}
-                >
-                    <FormItem
-                        required={values.provider === 'Moonshot'}
-                        name='moonshotAPIKey'
-                        label='Moonshot API Key'
-                        caption={
-                            <div>
-                                {t('Go to the')}{' '}
-                                <a target='_blank' href='https://www.moonshot.cn/' rel='noreferrer' style={linkStyle}>
-                                    Moonshot Page
-                                </a>{' '}
-                                {t('to get your API Key.')}
-                            </div>
-                        }
-                    >
-                        <Input autoFocus type='password' size='compact' onBlur={onBlur} />
-                    </FormItem>
-                    <FormItem name='moonshotAPIModel' label={t('API Model')} required={values.provider === 'Moonshot'}>
-                        <APIModelSelector provider='Moonshot' onBlur={onBlur} key={values.moonshotAPIKey} />
-                    </FormItem>
-                </div>
-                <FormItem name='defaultTranslateMode' label={t('Default Action')}>
-                    <TranslateModeSelector onBlur={onBlur} />
-                </FormItem>
-                <FormItem
-                    name='alwaysShowIcons'
-                    label={t('Show icon when text is selected')}
-                    caption={
-                        isDesktopApp && (
-                            <div
-                                style={{
-                                    display: 'flex',
-                                    alignItems: 'center',
-                                    gap: 6,
-                                }}
+                        <FormItem name='i18n' label={t('i18n')}>
+                            <Ii18nSelector onBlur={onBlur} />
+                        </FormItem>
+                        <FormItem name='provider' label={t('Default service provider')} required>
+                            <ProviderSelector />
+                        </FormItem>
+                        <div
+                            style={{
+                                display: values.provider === 'OpenAI' ? 'block' : 'none',
+                            }}
+                        >
+                            <FormItem
+                                required={values.provider === 'OpenAI'}
+                                name='apiKeys'
+                                label={t('API Key')}
+                                caption={
+                                    <div>
+                                        {t('Go to the')}{' '}
+                                        <a
+                                            target='_blank'
+                                            href='https://platform.openai.com/account/api-keys'
+                                            rel='noreferrer'
+                                            style={linkStyle}
+                                        >
+                                            {t('OpenAI page')}
+                                        </a>{' '}
+                                        {t(
+                                            'to get your API Key. You can separate multiple API Keys with English commas to achieve quota doubling and load balancing.'
+                                        )}
+                                    </div>
+                                }
                             >
-                                {t('It is highly recommended to disable this feature and use the Clip Extension')}
-                                <a
-                                    href='https://github.com/openai-translator/openai-translator/blob/main/CLIP-EXTENSIONS.md'
-                                    target='_blank'
-                                    rel='noreferrer'
-                                    style={linkStyle}
-                                >
-                                    {t('Clip Extension')}
-                                </a>
-                            </div>
-                        )
-                    }
-                >
-                    <AlwaysShowIconsCheckbox onBlur={onBlur} />
-                </FormItem>
-                <FormItem
-                    style={{
-                        display: isDesktopApp && isMacOS ? 'block' : 'none',
-                    }}
-                    name='allowUsingClipboardWhenSelectedTextNotAvailable'
-                    label={t('Using clipboard')}
-                    caption={t(
-                        'Allow using the clipboard to get the selected text when the selected text is not available'
-                    )}
-                >
-                    <MyCheckbox onBlur={onBlur} />
-                </FormItem>
-                <FormItem name='autoTranslate' label={t('Auto Translate')}>
-                    <AutoTranslateCheckbox onBlur={onBlur} />
-                </FormItem>
-                <FormItem name='restorePreviousPosition' label={t('Restore Previous Position')}>
-                    <RestorePreviousPositionCheckbox onBlur={onBlur} />
-                </FormItem>
-                <FormItem name='selectInputElementsText' label={t('Word selection in input')}>
-                    <SelectInputElementsCheckbox onBlur={onBlur} />
-                </FormItem>
-                <FormItem name='readSelectedWordsFromInputElementsText' label={t('Read the selected words in input')}>
-                    <ReadSelectedWordsFromInputElementsCheckbox onBlur={onBlur} />
-                </FormItem>
-                {isTauri && (
-                    <FormItem name='runAtStartup' label={t('Run at startup')}>
-                        <RunAtStartupCheckbox onBlur={onBlur} />
-                    </FormItem>
-                )}
-                <FormItem name='defaultTargetLanguage' label={t('Default target language')}>
-                    <LanguageSelector onBlur={onBlur} />
-                </FormItem>
-                <FormItem name='themeType' label={t('Theme')}>
-                    <ThemeTypeSelector onBlur={onBlur} />
-                </FormItem>
-                <FormItem name='tts' label={t('TTS')}>
-                    <TTSVoicesSettings onBlur={onBlur} />
-                </FormItem>
-                <FormItem name='hotkey' label={t('Hotkey')}>
-                    <HotkeyRecorder onBlur={onBlur} testId='hotkey-recorder' />
-                </FormItem>
-                <FormItem name='ocrHotkey' label={t('OCR Hotkey')}>
-                    <HotkeyRecorder onBlur={onBlur} testId='ocr-hotkey-recorder' />
-                </FormItem>
-                <FormItem
-                    style={{
-                        display: isDesktopApp ? 'block' : 'none',
-                    }}
-                    name='writingTargetLanguage'
-                    label={t('Writing target language')}
-                >
-                    <LanguageSelector onBlur={onBlur} />
-                </FormItem>
-                <FormItem
-                    style={{
-                        display: isDesktopApp ? 'block' : 'none',
-                    }}
-                    name='writingHotkey'
-                    label={t('Writing Hotkey')}
-                    caption={t(
-                        'Press this shortcut key in the input box of any application, and the text already entered in the input box will be automatically translated into the writing target language.'
-                    )}
-                >
-                    <HotkeyRecorder onBlur={onBlur} testId='writing-hotkey-recorder' />
-                </FormItem>
-                <FormItem
-                    style={{
-                        display: isDesktopApp ? 'block' : 'none',
-                    }}
-                    name='writingNewlineHotkey'
-                    label={t('Writing line break shortcut')}
-                    caption={t('When writing, which key should be pressed when encountering a line break?')}
-                >
-                    <HotkeyRecorder onBlur={onBlur} testId='writing-newline-hotkey-recorder' />
-                </FormItem>
-                <FormItem
-                    style={{
-                        display: isDesktopApp ? 'block' : 'none',
-                    }}
-                    name='disableCollectingStatistics'
-                    label={t('disable collecting statistics')}
-                >
-                    <MyCheckbox onBlur={onBlur} />
-                </FormItem>
+                                <Input autoFocus type='password' size='compact' name='apiKey' onBlur={onBlur} />
+                            </FormItem>
+                            <FormItem name='apiModel' label={t('API Model')} required={values.provider === 'OpenAI'}>
+                                <APIModelSelector provider='OpenAI' currentProvider={values.provider} onBlur={onBlur} />
+                            </FormItem>
+                            <FormItem name='apiURL' label={t('API URL')} required={values.provider === 'OpenAI'}>
+                                <Input size='compact' onBlur={onBlur} />
+                            </FormItem>
+                            <FormItem
+                                name='apiURLPath'
+                                label={t('API URL Path')}
+                                required={values.provider === 'OpenAI'}
+                            >
+                                <Input size='compact' />
+                            </FormItem>
+                        </div>
+                        <div
+                            style={{
+                                display: values.provider === 'Azure' ? 'block' : 'none',
+                            }}
+                        >
+                            <FormItem
+                                required={values.provider === 'Azure'}
+                                name='azureAPIKeys'
+                                label={t('API Key')}
+                                caption={
+                                    <div>
+                                        {t('Go to the')}{' '}
+                                        <a
+                                            target='_blank'
+                                            href='https://learn.microsoft.com/en-us/azure/cognitive-services/openai/chatgpt-quickstart?tabs=command-line&pivots=rest-api#retrieve-key-and-endpoint'
+                                            rel='noreferrer'
+                                            style={linkStyle}
+                                        >
+                                            {t('Azure OpenAI Service page')}
+                                        </a>{' '}
+                                        {t(
+                                            'to get your API Key. You can separate multiple API Keys with English commas to achieve quota doubling and load balancing.'
+                                        )}
+                                    </div>
+                                }
+                            >
+                                <Input autoFocus type='password' size='compact' onBlur={onBlur} />
+                            </FormItem>
+                            <FormItem
+                                name='azureAPIModel'
+                                label={t('API Model')}
+                                required={values.provider === 'Azure'}
+                            >
+                                <APIModelSelector provider='Azure' currentProvider={values.provider} onBlur={onBlur} />
+                            </FormItem>
+                            <FormItem name='azureAPIURL' label={t('API URL')} required={values.provider === 'Azure'}>
+                                <Input size='compact' onBlur={onBlur} />
+                            </FormItem>
+                            <FormItem
+                                name='azureAPIURLPath'
+                                label={t('API URL Path')}
+                                required={values.provider === 'Azure'}
+                            >
+                                <Input size='compact' />
+                            </FormItem>
+                        </div>
+                        <div
+                            style={{
+                                display: values.provider === 'ChatGPT' ? 'block' : 'none',
+                            }}
+                        >
+                            <FormItem
+                                name='chatgptModel'
+                                label={t('API Model')}
+                                required={values.provider === 'ChatGPT'}
+                            >
+                                <APIModelSelector
+                                    provider='ChatGPT'
+                                    currentProvider={values.provider}
+                                    onBlur={onBlur}
+                                />
+                            </FormItem>
+                        </div>
+                        <div
+                            style={{
+                                display: values.provider === 'MiniMax' ? 'block' : 'none',
+                            }}
+                        >
+                            <FormItem
+                                required={values.provider === 'MiniMax'}
+                                name='miniMaxGroupID'
+                                label='MiniMax Group ID'
+                                caption={
+                                    <div>
+                                        {t('Go to the')}{' '}
+                                        <a
+                                            target='_blank'
+                                            href='https://api.minimax.chat/user-center/basic-information'
+                                            rel='noreferrer'
+                                            style={linkStyle}
+                                        >
+                                            {t('MiniMax page')}
+                                        </a>{' '}
+                                        {t('to get your Group ID.')}
+                                    </div>
+                                }
+                            >
+                                <Input size='compact' onBlur={onBlur} />
+                            </FormItem>
+                            <FormItem
+                                required={values.provider === 'MiniMax'}
+                                name='miniMaxAPIKey'
+                                label='MiniMax API Key'
+                                caption={
+                                    <div>
+                                        {t('Go to the')}{' '}
+                                        <a
+                                            target='_blank'
+                                            href='https://api.minimax.chat/user-center/basic-information/interface-key'
+                                            rel='noreferrer'
+                                            style={linkStyle}
+                                        >
+                                            {t('MiniMax page')}
+                                        </a>{' '}
+                                        {t('to get your API Key.')}
+                                    </div>
+                                }
+                            >
+                                <Input autoFocus type='password' size='compact' onBlur={onBlur} />
+                            </FormItem>
+                        </div>
+                        <div
+                            style={{
+                                display: values.provider === 'Moonshot' ? 'block' : 'none',
+                            }}
+                        >
+                            <FormItem
+                                required={values.provider === 'Moonshot'}
+                                name='moonshotAPIKey'
+                                label='Moonshot API Key'
+                                caption={
+                                    <div>
+                                        {t('Go to the')}{' '}
+                                        <a
+                                            target='_blank'
+                                            href='https://www.moonshot.cn/'
+                                            rel='noreferrer'
+                                            style={linkStyle}
+                                        >
+                                            Moonshot Page
+                                        </a>{' '}
+                                        {t('to get your API Key.')}
+                                    </div>
+                                }
+                            >
+                                <Input autoFocus type='password' size='compact' onBlur={onBlur} />
+                            </FormItem>
+                            <FormItem
+                                name='moonshotAPIModel'
+                                label={t('API Model')}
+                                required={values.provider === 'Moonshot'}
+                            >
+                                <APIModelSelector
+                                    provider='Moonshot'
+                                    currentProvider={values.provider}
+                                    onBlur={onBlur}
+                                    apiKey={values.moonshotAPIKey}
+                                />
+                            </FormItem>
+                        </div>
+                        <FormItem name='defaultTranslateMode' label={t('Default Action')}>
+                            <TranslateModeSelector onBlur={onBlur} />
+                        </FormItem>
+                        <FormItem name='defaultTargetLanguage' label={t('Default target language')}>
+                            <LanguageSelector onBlur={onBlur} />
+                        </FormItem>
+                        <FormItem name='themeType' label={t('Theme')}>
+                            <ThemeTypeSelector onBlur={onBlur} />
+                        </FormItem>
+                        <FormItem
+                            name='alwaysShowIcons'
+                            label={t('Show icon when text is selected')}
+                            caption={
+                                isDesktopApp && (
+                                    <div
+                                        style={{
+                                            display: 'flex',
+                                            alignItems: 'center',
+                                            gap: 6,
+                                        }}
+                                    >
+                                        {t(
+                                            'It is highly recommended to disable this feature and use the Clip Extension'
+                                        )}
+                                        <a
+                                            href='https://github.com/openai-translator/openai-translator/blob/main/CLIP-EXTENSIONS.md'
+                                            target='_blank'
+                                            rel='noreferrer'
+                                            style={linkStyle}
+                                        >
+                                            {t('Clip Extension')}
+                                        </a>
+                                    </div>
+                                )
+                            }
+                        >
+                            <AlwaysShowIconsCheckbox onBlur={onBlur} />
+                        </FormItem>
+                        <FormItem
+                            style={{
+                                display: isDesktopApp && isMacOS ? 'block' : 'none',
+                            }}
+                            name='allowUsingClipboardWhenSelectedTextNotAvailable'
+                            label={t('Using clipboard')}
+                            caption={t(
+                                'Allow using the clipboard to get the selected text when the selected text is not available'
+                            )}
+                        >
+                            <MyCheckbox onBlur={onBlur} />
+                        </FormItem>
+                        <FormItem name='autoTranslate' label={t('Auto Translate')}>
+                            <AutoTranslateCheckbox onBlur={onBlur} />
+                        </FormItem>
+                        <FormItem name='restorePreviousPosition' label={t('Restore Previous Position')}>
+                            <RestorePreviousPositionCheckbox onBlur={onBlur} />
+                        </FormItem>
+                        <FormItem name='selectInputElementsText' label={t('Word selection in input')}>
+                            <SelectInputElementsCheckbox onBlur={onBlur} />
+                        </FormItem>
+                        <FormItem
+                            name='readSelectedWordsFromInputElementsText'
+                            label={t('Read the selected words in input')}
+                        >
+                            <ReadSelectedWordsFromInputElementsCheckbox onBlur={onBlur} />
+                        </FormItem>
+                        {isTauri && (
+                            <FormItem name='runAtStartup' label={t('Run at startup')}>
+                                <RunAtStartupCheckbox onBlur={onBlur} />
+                            </FormItem>
+                        )}
+                        <FormItem
+                            style={{
+                                display: isDesktopApp ? 'block' : 'none',
+                            }}
+                            name='automaticCheckForUpdates'
+                            label={t('Automatic check for updates')}
+                        >
+                            <MyCheckbox onBlur={onBlur} />
+                        </FormItem>
+                        <FormItem
+                            style={{
+                                display: isDesktopApp ? 'block' : 'none',
+                            }}
+                            name='disableCollectingStatistics'
+                            label={t('disable collecting statistics')}
+                        >
+                            <MyCheckbox onBlur={onBlur} />
+                        </FormItem>
+                    </div>
+                    <div
+                        style={{
+                            display: activeTab === 1 ? 'block' : 'none',
+                        }}
+                    >
+                        <FormItem name='tts' label={t('TTS')}>
+                            <TTSVoicesSettings onBlur={onBlur} />
+                        </FormItem>
+                    </div>
+                    <div
+                        style={{
+                            display: activeTab === 2 ? 'block' : 'none',
+                        }}
+                    >
+                        <FormItem
+                            style={{
+                                display: isDesktopApp ? 'block' : 'none',
+                            }}
+                            name='writingTargetLanguage'
+                            label={t('Writing target language')}
+                        >
+                            <LanguageSelector onBlur={onBlur} />
+                        </FormItem>
+                        <FormItem
+                            style={{
+                                display: isDesktopApp ? 'block' : 'none',
+                            }}
+                            name='writingHotkey'
+                            label={t('Writing Hotkey')}
+                            caption={t(
+                                'Press this shortcut key in the input box of any application, and the text already entered in the input box will be automatically translated into the writing target language.'
+                            )}
+                        >
+                            <HotkeyRecorder onBlur={onBlur} testId='writing-hotkey-recorder' />
+                        </FormItem>
+                        <FormItem
+                            style={{
+                                display: isDesktopApp ? 'block' : 'none',
+                            }}
+                            name='writingNewlineHotkey'
+                            label={t('Writing line break shortcut')}
+                            caption={t('When writing, which key should be pressed when encountering a line break?')}
+                        >
+                            <HotkeyRecorder onBlur={onBlur} testId='writing-newline-hotkey-recorder' />
+                        </FormItem>
+                    </div>
+                    <div
+                        style={{
+                            display: activeTab === 3 ? 'block' : 'none',
+                        }}
+                    >
+                        <FormItem name='hotkey' label={t('Hotkey')}>
+                            <HotkeyRecorder onBlur={onBlur} testId='hotkey-recorder' />
+                        </FormItem>
+                        <FormItem name='displayWindowHotkey' label={t('Display window Hotkey')}>
+                            <HotkeyRecorder onBlur={onBlur} testId='display-window-hotkey-recorder' />
+                        </FormItem>
+                        <FormItem
+                            style={{
+                                display: isDesktopApp && isMacOS ? 'block' : 'none',
+                            }}
+                            name='ocrHotkey'
+                            label={t('OCR Hotkey')}
+                        >
+                            <HotkeyRecorder onBlur={onBlur} testId='ocr-hotkey-recorder' />
+                        </FormItem>
+                    </div>
+                </div>
                 <div
                     style={{
+                        position: 'fixed',
+                        bottom: '7px',
+                        right: '25px',
                         display: 'flex',
                         alignItems: 'center',
                         flexDirection: 'row',
+                        zIndex: '999',
                         gap: 10,
                     }}
                 >
@@ -1478,12 +1815,20 @@ export function InnerSettings({ onSave }: IInnerSettingsProps) {
                             marginRight: 'auto',
                         }}
                     />
-                    <Button isLoading={loading} size='compact'>
+                    <Button isLoading={loading} size='mini' startEnhancer={<IoIosSave size={12} />}>
                         {t('Save')}
                     </Button>
                 </div>
                 <Toaster />
             </Form>
+            {showFooter && (
+                <div
+                    className={styles.footer}
+                    style={{
+                        boxShadow: isScrolledToBottom ? undefined : theme.lighting.shadow700,
+                    }}
+                />
+            )}
             <Modal
                 isOpen={showBuyMeACoffee}
                 onClose={() => setShowBuyMeACoffee(false)}

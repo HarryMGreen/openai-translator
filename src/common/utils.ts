@@ -2,6 +2,9 @@
 import { createParser } from 'eventsource-parser'
 import { IBrowser, ISettings } from './types'
 import { getUniversalFetch } from './universal-fetch'
+import { v4 as uuidv4 } from 'uuid'
+import { invoke } from '@tauri-apps/api/primitives'
+import { listen, Event, emit } from '@tauri-apps/api/event'
 
 export const defaultAPIURL = 'https://api.openai.com'
 export const defaultAPIURLPath = '/v1/chat/completions'
@@ -33,6 +36,7 @@ export async function getAzureApiKey(): Promise<string> {
 
 // In order to let the type system remind you that all keys have been passed to browser.storage.sync.get(keys)
 const settingKeys: Record<keyof ISettings, number> = {
+    automaticCheckForUpdates: 1,
     apiKeys: 1,
     apiURL: 1,
     apiURLPath: 1,
@@ -52,6 +56,7 @@ const settingKeys: Record<keyof ISettings, number> = {
     defaultTargetLanguage: 1,
     alwaysShowIcons: 1,
     hotkey: 1,
+    displayWindowHotkey: 1,
     ocrHotkey: 1,
     writingTargetLanguage: 1,
     writingHotkey: 1,
@@ -141,6 +146,9 @@ export async function getSettings(): Promise<ISettings> {
             settings.chatgptModel = settings.apiModel
         }
     }
+    if (settings.automaticCheckForUpdates === undefined || settings.automaticCheckForUpdates === null) {
+        settings.automaticCheckForUpdates = true
+    }
     return settings
 }
 
@@ -229,7 +237,7 @@ export async function exportToCsv<T extends Record<string, string | number>>(fil
     }
 
     if (isDesktopApp()) {
-        const { BaseDirectory, writeTextFile } = await import('@tauri-apps/api/fs')
+        const { BaseDirectory, writeTextFile } = await import('@tauri-apps/plugin-fs')
         try {
             return await writeTextFile(filename, csvFile, { dir: BaseDirectory.Desktop })
         } catch (e) {
@@ -249,7 +257,7 @@ export async function exportToCsv<T extends Record<string, string | number>>(fil
 }
 
 interface FetchSSEOptions extends RequestInit {
-    onMessage(data: string): void
+    onMessage(data: string): Promise<void>
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     onError(error: any): void
     onStatusCode?: (statusCode: number) => void
@@ -259,18 +267,57 @@ interface FetchSSEOptions extends RequestInit {
 export async function fetchSSE(input: string, options: FetchSSEOptions) {
     const { onMessage, onError, onStatusCode, fetcher = getUniversalFetch(), ...fetchOptions } = options
 
+    const parser = createParser(async (event) => {
+        if (event.type === 'event') {
+            await onMessage(event.data)
+        }
+    })
+
+    if (isTauri()) {
+        const id = uuidv4()
+        let unlisten: (() => void) | undefined = undefined
+        return await new Promise<void>((resolve, reject) => {
+            options.signal?.addEventListener('abort', () => {
+                unlisten?.()
+                emit('abort-fetch-stream', { id })
+            })
+            listen('fetch-stream-chunk', (event: Event<{ id: string; data: string; done: boolean }>) => {
+                const payload = event.payload
+                if (payload.id === id) {
+                    if (payload.done) {
+                        resolve()
+                        return
+                    }
+                    parser.feed(payload.data)
+                }
+            })
+                .then((cb) => {
+                    unlisten = cb
+                })
+                .catch((e) => {
+                    reject(e)
+                })
+
+            invoke('fetch_stream', {
+                id,
+                url: input,
+                optionsStr: JSON.stringify(fetchOptions),
+            })
+                .catch((e) => {
+                    reject(e)
+                })
+                .finally(() => {
+                    unlisten?.()
+                })
+        })
+    }
+
     const resp = await fetcher(input, fetchOptions)
     onStatusCode?.(resp.status)
     if (resp.status !== 200) {
         onError(await resp.json())
         return
     }
-
-    const parser = createParser((event) => {
-        if (event.type === 'event') {
-            onMessage(event.data)
-        }
-    })
     // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
     const reader = resp.body!.getReader()
     try {

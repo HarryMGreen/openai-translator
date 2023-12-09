@@ -45,6 +45,7 @@ export interface IThemedStyleProps {
 }
 
 export interface ISettings {
+    automaticCheckForUpdates: boolean
     apiKeys: string
     apiURL: string
     apiURLPath: string
@@ -64,6 +65,7 @@ export interface ISettings {
     defaultTargetLanguage: string
     alwaysShowIcons: boolean
     hotkey?: string
+    displayWindowHotkey?: string
     ocrHotkey?: string
     writingTargetLanguage: string
     writingHotkey?: string

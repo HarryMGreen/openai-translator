@@ -30,7 +30,7 @@ interface BaseTranslateQuery {
     detectTo: LangCode
     mode?: Exclude<TranslateMode, 'big-bang'>
     action: Action
-    onMessage: (message: { content: string; role: string; isWordMode: boolean; isFullText?: boolean }) => void
+    onMessage: (message: { content: string; role: string; isWordMode: boolean; isFullText?: boolean }) => Promise<void>
     onError: (error: string) => void
     onFinish: (reason: string) => void
     onStatusCode?: (statusCode: number) => void
@@ -219,7 +219,7 @@ export async function translate(query: TranslateQuery) {
         const toChinese = chineseLangCodes.indexOf(targetLangCode) >= 0
         const targetLangConfig = getLangConfig(targetLangCode)
         const sourceLangConfig = getLangConfig(sourceLangCode)
-        console.log('Source language is', sourceLangConfig)
+        console.debug('Source language is', sourceLangConfig)
         rolePrompt = targetLangConfig.rolePrompt
 
         switch (query.action.mode) {
@@ -242,7 +242,9 @@ export async function translate(query: TranslateQuery) {
                     .replace('${targetLang}', targetLangName)
                     .replace('${text}', query.text)
                 if (query.action.outputRenderingFormat) {
-                    commandPrompt += `. Format: ${query.action.outputRenderingFormat}`
+                    commandPrompt =
+                        `(Requirements: The output format must be ${query.action.outputRenderingFormat}) ` +
+                        commandPrompt
                 }
                 break
             case 'translate':
@@ -327,7 +329,6 @@ Examples:
 <index>. <sentence>(<sentence translation>)
 Etymology:
 <etymology>`
-                        console.log(rolePrompt)
                         commandPrompt = 'I understand. Please give me the word.'
                         contentPrompt = `The word is: ${query.text}`
                     }
@@ -404,8 +405,8 @@ If you understand, say "yes", and then we will begin.`
         rolePrompt,
         commandPrompt,
         assistantPrompts,
-        onMessage: (message) => {
-            query.onMessage({ ...message, isWordMode })
+        onMessage: async (message) => {
+            await query.onMessage({ ...message, isWordMode })
         },
         onFinished: (reason) => {
             query.onFinish(reason)

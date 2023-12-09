@@ -3,24 +3,23 @@ import { fetchSSE } from '../utils'
 import { IEngine, IMessageRequest, IModel } from './interfaces'
 
 export abstract class AbstractOpenAI implements IEngine {
-    async listModels(): Promise<IModel[]> {
-        return new Promise<IModel[]>((resolve) => {
-            resolve([
-                { name: 'gpt-3.5-turbo-1106', id: 'gpt-3.5-turbo-1106' },
-                { name: 'gpt-3.5-turbo', id: 'gpt-3.5-turbo' },
-                { name: 'gpt-3.5-turbo-0613', id: 'gpt-3.5-turbo-0613' },
-                { name: 'gpt-3.5-turbo-0301', id: 'gpt-3.5-turbo-0301' },
-                { name: 'gpt-3.5-turbo-16k', id: 'gpt-3.5-turbo-16k' },
-                { name: 'gpt-3.5-turbo-16k-0613', id: 'gpt-3.5-turbo-16k-0613' },
-                { name: 'gpt-4', id: 'gpt-4' },
-                { name: 'gpt-4-1106-preview (recommended)', id: 'gpt-4-1106-preview' },
-                { name: 'gpt-4-0314', id: 'gpt-4-0314' },
-                { name: 'gpt-4-0613', id: 'gpt-4-0613' },
-                { name: 'gpt-4-32k', id: 'gpt-4-32k' },
-                { name: 'gpt-4-32k-0314', id: 'gpt-4-32k-0314' },
-                { name: 'gpt-4-32k-0613', id: 'gpt-4-32k-0613' },
-            ])
-        })
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    async listModels(apiKey_: string | undefined): Promise<IModel[]> {
+        return [
+            { name: 'gpt-3.5-turbo-1106', id: 'gpt-3.5-turbo-1106' },
+            { name: 'gpt-3.5-turbo', id: 'gpt-3.5-turbo' },
+            { name: 'gpt-3.5-turbo-0613', id: 'gpt-3.5-turbo-0613' },
+            { name: 'gpt-3.5-turbo-0301', id: 'gpt-3.5-turbo-0301' },
+            { name: 'gpt-3.5-turbo-16k', id: 'gpt-3.5-turbo-16k' },
+            { name: 'gpt-3.5-turbo-16k-0613', id: 'gpt-3.5-turbo-16k-0613' },
+            { name: 'gpt-4', id: 'gpt-4' },
+            { name: 'gpt-4-1106-preview (recommended)', id: 'gpt-4-1106-preview' },
+            { name: 'gpt-4-0314', id: 'gpt-4-0314' },
+            { name: 'gpt-4-0613', id: 'gpt-4-0613' },
+            { name: 'gpt-4-32k', id: 'gpt-4-32k' },
+            { name: 'gpt-4-32k-0314', id: 'gpt-4-32k-0314' },
+            { name: 'gpt-4-32k-0613', id: 'gpt-4-32k-0613' },
+        ]
     }
 
     abstract getAPIModel(): Promise<string>
@@ -28,18 +27,22 @@ export abstract class AbstractOpenAI implements IEngine {
     abstract getAPIURL(): Promise<string>
     abstract getAPIURLPath(): Promise<string>
 
+    async getHeaders(): Promise<Record<string, string>> {
+        const apiKey = await this.getAPIKey()
+        return {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${apiKey}`,
+        }
+    }
+
     async isChatAPI(): Promise<boolean> {
         return true
     }
 
     async sendMessage(req: IMessageRequest): Promise<void> {
         const model = await this.getAPIModel()
-        const apiKey = await this.getAPIKey()
         const url = `${await this.getAPIURL()}${await this.getAPIURLPath()}`
-        const headers = {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${apiKey}`,
-        }
+        const headers = await this.getHeaders()
         const isChatAPI = await this.isChatAPI()
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const body: Record<string, any> = {
@@ -84,13 +87,14 @@ export abstract class AbstractOpenAI implements IEngine {
             headers,
             body: JSON.stringify(body),
             signal: req.signal,
-            onMessage: (msg) => {
+            onMessage: async (msg) => {
                 if (finished) return
                 let resp
                 try {
                     resp = JSON.parse(msg)
-                    // eslint-disable-next-line no-empty
-                } catch {
+                    // eslint-disable-next-line no-empty, @typescript-eslint/no-explicit-any
+                } catch (e: any) {
+                    req.onError?.(e?.message ?? 'Cannot parse response JSON')
                     req.onFinished('stop')
                     finished = true
                     return
@@ -98,7 +102,7 @@ export abstract class AbstractOpenAI implements IEngine {
 
                 const { choices } = resp
                 if (!choices || choices.length === 0) {
-                    return { error: 'No result' }
+                    return
                 }
                 const { finish_reason: finishReason } = choices[0]
                 if (finishReason) {
@@ -112,13 +116,13 @@ export abstract class AbstractOpenAI implements IEngine {
                     // It's used for Azure OpenAI Service's legacy parameters.
                     targetTxt = choices[0].text
 
-                    req.onMessage({ content: targetTxt, role: '' })
+                    await req.onMessage({ content: targetTxt, role: '' })
                 } else {
                     const { content = '', role } = choices[0].delta
 
                     targetTxt = content
 
-                    req.onMessage({ content: targetTxt, role })
+                    await req.onMessage({ content: targetTxt, role })
                 }
             },
             onError: (err) => {
