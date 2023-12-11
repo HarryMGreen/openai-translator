@@ -71,7 +71,7 @@
         "windows": {
           "installMode": "passive"
         },
-        "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDc0NDdFRjA3NDgyRTdBQkQKUldTOWVpNUlCKzlIZEFkUHUrZnExaUtJNGxPVjIyM1p3UUM1MGNDWmdMekVhRHdmREswZmxzQzgK"
+        "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEI1NTBBRDIwQzJBNjgyQ0IKUldUTGdxYkNJSzFRdFJXWjVhT2xoc1RvcUlva1QyTHZ0TkdQQ3I2QTlqN3BRQ29xaFpPQVZPR0IK"
       },
       "windows": {
         "certificateThumbprint": null,
