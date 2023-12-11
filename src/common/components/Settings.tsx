@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useReducer, useState } from 'react'
+import { useCallback, useEffect, useMemo, useReducer, useState } from 'react'
 import _ from 'underscore'
 import { Tabs, Tab, StyledTabList, StyledTabPanel } from 'baseui-sd/tabs-motion'
 import { SlSpeech } from 'react-icons/sl'
@@ -29,7 +29,7 @@ import AppConfig from '../../../package.json'
 import { useSettings } from '../hooks/useSettings'
 import { defaultTTSProvider, langCode2TTSLang } from '../tts'
 import { RiDeleteBin5Line } from 'react-icons/ri'
-import { IoIosSave, IoMdAdd } from 'react-icons/io'
+import { IoIosHelpCircleOutline, IoIosSave, IoMdAdd } from 'react-icons/io'
 import { TTSProvider } from '../tts/types'
 import { getEdgeVoices } from '../tts/edge-tts'
 import { useThemeType } from '../hooks/useThemeType'
@@ -37,12 +37,24 @@ import { Slider } from 'baseui-sd/slider'
 import { useLiveQuery } from 'dexie-react-hooks'
 import { actionService } from '../services/action'
 import { GlobalSuspense } from './GlobalSuspense'
-import { Modal, ModalBody, ModalHeader } from 'baseui-sd/modal'
+import { Modal, ModalBody, ModalButton, ModalFooter, ModalHeader } from 'baseui-sd/modal'
 import { Provider, getEngine } from '../engines'
 import { IModel } from '../engines/interfaces'
 import { PiTextbox } from 'react-icons/pi'
 import { BsKeyboard } from 'react-icons/bs'
 import { Cell, Grid } from 'baseui-sd/layout-grid'
+import {
+    II18nPromotionContent,
+    IPromotionResponse,
+    fetchPromotions,
+    II18nPromotionContentItem,
+    getPromotionItem,
+} from '../services/promotion'
+import useSWR from 'swr'
+import { Markdown } from './Markdown'
+import { open } from '@tauri-apps/plugin-shell'
+import { getCurrent } from '@tauri-apps/api/window'
+import { usePromotionShowed } from '../hooks/usePromotionShowed'
 
 const langOptions: Value = supportedLanguages.reduce((acc, [id, label]) => {
     return [
@@ -827,6 +839,34 @@ function RunAtStartupCheckbox({ value, onChange, onBlur }: RunAtStartupCheckboxP
 }
 
 const useStyles = createUseStyles({
+    promotion: (props: IThemedStyleProps) => {
+        return {
+            'display': 'flex',
+            'flexDirection': 'column',
+            'gap': '3px',
+            'borderRadius': '0.31rem',
+            'padding': '0.15rem 0.4rem',
+            'color': props.themeType === 'dark' ? props.theme.colors.black : props.theme.colors.contentPrimary,
+            'backgroundColor': props.theme.colors.warning100,
+            '& p': {
+                margin: '2px 0',
+            },
+            '& a': {
+                color: props.themeType === 'dark' ? props.theme.colors.black : props.theme.colors.contentPrimary,
+                textDecoration: 'underline',
+            },
+        }
+    },
+    disclaimer: (props: IThemedStyleProps) => {
+        return {
+            'color': props.theme.colors.contentPrimary,
+            'lineHeight': 1.8,
+            '& a': {
+                color: props.theme.colors.contentPrimary,
+                textDecoration: 'underline',
+            },
+        }
+    },
     footer: (props: IThemedStyleProps) =>
         props.isDesktopApp
             ? {
@@ -1059,13 +1099,45 @@ export function Settings({ engine, ...props }: ISettingsProps) {
 }
 
 export function InnerSettings({ onSave, showFooter = false }: IInnerSettingsProps) {
+    const { data: promotions, mutate: refetchPromotions } = useSWR<IPromotionResponse>('promotions', fetchPromotions)
+
+    useEffect(() => {
+        const timer = setInterval(
+            () => {
+                refetchPromotions()
+            },
+            1000 * 60 * 10
+        )
+        return () => {
+            clearInterval(timer)
+        }
+    }, [refetchPromotions])
+
+    const isTauri = utils.isTauri()
+
+    useEffect(() => {
+        if (!isTauri) {
+            return undefined
+        }
+        let unlisten: (() => void) | undefined = undefined
+        const appWindow = getCurrent()
+        appWindow
+            .listen('tauri://focus', () => {
+                refetchPromotions()
+            })
+            .then((cb) => {
+                unlisten = cb
+            })
+        return () => {
+            unlisten?.()
+        }
+    }, [isTauri, refetchPromotions])
+
     const { theme, themeType } = useTheme()
 
     const { refreshThemeType } = useThemeType()
 
     const { t } = useTranslation()
-
-    const isTauri = utils.isTauri()
 
     const [loading, setLoading] = useState(false)
     const [values, setValues] = useState<ISettings>({
@@ -1096,6 +1168,7 @@ export function InnerSettings({ onSave, showFooter = false }: IInnerSettingsProp
         readSelectedWordsFromInputElementsText: utils.defaultReadSelectedWordsFromInputElementsText,
         runAtStartup: false,
         writingTargetLanguage: utils.defaultWritingTargetLanguage,
+        hideTheIconInTheDock: false,
     })
     const [prevValues, setPrevValues] = useState<ISettings>(values)
 
@@ -1279,6 +1352,53 @@ export function InnerSettings({ onSave, showFooter = false }: IInnerSettingsProp
         },
     }
 
+    const getI18nPromotionContent = (contentItem: II18nPromotionContentItem) => {
+        let c =
+            contentItem.content[
+                (values.i18n as keyof II18nPromotionContent | undefined) ?? contentItem.fallback_language
+            ]
+        if (!c) {
+            c = contentItem.content[contentItem.fallback_language]
+        }
+        return c
+    }
+
+    const renderI18nPromotionContent = (contentItem: II18nPromotionContentItem) => {
+        if (contentItem.format === 'text') {
+            return <span>{getI18nPromotionContent(contentItem)}</span>
+        }
+
+        if (contentItem.format === 'html') {
+            return (
+                <div
+                    dangerouslySetInnerHTML={{
+                        __html: getI18nPromotionContent(contentItem) ?? '',
+                    }}
+                />
+            )
+        }
+
+        if (contentItem.format === 'markdown') {
+            return <Markdown linkTarget='_blank'>{getI18nPromotionContent(contentItem) ?? ''}</Markdown>
+        }
+
+        return <div />
+    }
+
+    const [disclaimerContent, setDisclaimerContent] = useState<React.ReactNode>()
+    const [disclaimerAgreeLink, setDisclaimerAgreeLink] = useState<string>()
+    const [showDisclaimerModal, setShowDisclaimerModal] = useState(false)
+
+    const openaiAPIKeyPromotion = useMemo(() => {
+        return getPromotionItem(promotions?.openai_api_key)
+    }, [promotions])
+
+    const { setPromotionShowed } = usePromotionShowed(openaiAPIKeyPromotion)
+
+    useEffect(() => {
+        setPromotionShowed(true)
+    }, [setPromotionShowed])
+
     return (
         <div
             style={{
@@ -1459,23 +1579,80 @@ export function InnerSettings({ onSave, showFooter = false }: IInnerSettingsProp
                                 name='apiKeys'
                                 label={t('API Key')}
                                 caption={
-                                    <div>
-                                        {t('Go to the')}{' '}
-                                        <a
-                                            target='_blank'
-                                            href='https://platform.openai.com/account/api-keys'
-                                            rel='noreferrer'
-                                            style={linkStyle}
-                                        >
-                                            {t('OpenAI page')}
-                                        </a>{' '}
-                                        {t(
-                                            'to get your API Key. You can separate multiple API Keys with English commas to achieve quota doubling and load balancing.'
+                                    <div
+                                        style={{
+                                            display: 'flex',
+                                            flexDirection: 'column',
+                                            gap: 3,
+                                        }}
+                                    >
+                                        <div>
+                                            {t('Go to the')}{' '}
+                                            <a
+                                                target='_blank'
+                                                href='https://platform.openai.com/account/api-keys'
+                                                rel='noreferrer'
+                                                style={linkStyle}
+                                            >
+                                                {t('OpenAI page')}
+                                            </a>{' '}
+                                            {t(
+                                                'to get your API Key. You can separate multiple API Keys with English commas to achieve quota doubling and load balancing.'
+                                            )}
+                                        </div>
+                                        {openaiAPIKeyPromotion && (
+                                            <div className={styles.promotion}>
+                                                <div
+                                                    onClick={(e) => {
+                                                        if ((e.target as HTMLElement).tagName === 'A') {
+                                                            const href = (e.target as HTMLAnchorElement).href
+                                                            if (href && href.startsWith('http')) {
+                                                                e.preventDefault()
+                                                                e.stopPropagation()
+                                                                setDisclaimerContent(
+                                                                    renderI18nPromotionContent(
+                                                                        openaiAPIKeyPromotion.disclaimer
+                                                                    )
+                                                                )
+                                                                setDisclaimerAgreeLink(href)
+                                                                setShowDisclaimerModal(true)
+                                                            }
+                                                        }
+                                                    }}
+                                                >
+                                                    {renderI18nPromotionContent(openaiAPIKeyPromotion.promotion)}
+                                                </div>
+                                                {openaiAPIKeyPromotion.configuration_doc_link && (
+                                                    <div
+                                                        style={{
+                                                            display: 'flex',
+                                                            flexDirection: 'row',
+                                                            alignItems: 'center',
+                                                            gap: 3,
+                                                        }}
+                                                    >
+                                                        <IoIosHelpCircleOutline size={12} />
+                                                        <a
+                                                            href={openaiAPIKeyPromotion.configuration_doc_link}
+                                                            target='_blank'
+                                                            rel='noreferrer'
+                                                        >
+                                                            {t('How to Use')}
+                                                        </a>
+                                                    </div>
+                                                )}
+                                            </div>
                                         )}
                                     </div>
                                 }
                             >
-                                <Input autoFocus type='password' size='compact' name='apiKey' onBlur={onBlur} />
+                                <Input
+                                    autoFocus={!openaiAPIKeyPromotion}
+                                    type='password'
+                                    size='compact'
+                                    name='apiKey'
+                                    onBlur={onBlur}
+                                />
                             </FormItem>
                             <FormItem name='apiModel' label={t('API Model')} required={values.provider === 'OpenAI'}>
                                 <APIModelSelector provider='OpenAI' currentProvider={values.provider} onBlur={onBlur} />
@@ -1713,6 +1890,15 @@ export function InnerSettings({ onSave, showFooter = false }: IInnerSettingsProp
                         )}
                         <FormItem
                             style={{
+                                display: isMacOS ? 'block' : 'none',
+                            }}
+                            name='hideTheIconInTheDock'
+                            label={t('Hide the icon in the Dock bar')}
+                        >
+                            <MyCheckbox onBlur={onBlur} />
+                        </FormItem>
+                        <FormItem
+                            style={{
                                 display: isDesktopApp ? 'block' : 'none',
                             }}
                             name='automaticCheckForUpdates'
@@ -1864,6 +2050,46 @@ export function InnerSettings({ onSave, showFooter = false }: IInnerSettingsProp
                         </div>
                     </div>
                 </ModalBody>
+            </Modal>
+            <Modal
+                isOpen={showDisclaimerModal}
+                onClose={() => setShowDisclaimerModal(false)}
+                closeable
+                size='auto'
+                autoFocus
+                animate
+            >
+                <ModalHeader>{t('Disclaimer')}</ModalHeader>
+                <ModalBody className={styles.disclaimer}>{disclaimerContent}</ModalBody>
+                <ModalFooter>
+                    <ModalButton
+                        size='compact'
+                        kind='tertiary'
+                        onClick={(e: React.MouseEvent<HTMLButtonElement>) => {
+                            e.preventDefault()
+                            e.stopPropagation()
+                            setShowDisclaimerModal(false)
+                        }}
+                    >
+                        {t('Disagree')}
+                    </ModalButton>
+                    <ModalButton
+                        size='compact'
+                        onClick={(e: React.MouseEvent<HTMLButtonElement>) => {
+                            e.stopPropagation()
+                            e.preventDefault()
+                            if (isTauri) {
+                                if (disclaimerAgreeLink) {
+                                    open(disclaimerAgreeLink)
+                                }
+                            } else {
+                                window.open(disclaimerAgreeLink)
+                            }
+                        }}
+                    >
+                        {t('Agree and continue')}
+                    </ModalButton>
+                </ModalFooter>
             </Modal>
         </div>
     )

@@ -29,6 +29,9 @@ dependencies:
   '@tauri-apps/plugin-process':
     specifier: 2.0.0-alpha.3
     version: 2.0.0-alpha.3
+  '@tauri-apps/plugin-shell':
+    specifier: 2.0.0-alpha.3
+    version: 2.0.0-alpha.3
   '@tauri-apps/plugin-updater':
     specifier: 2.0.0-alpha.3
     version: 2.0.0-alpha.3
@@ -59,6 +62,9 @@ dependencies:
   date-fns:
     specifier: ^2.29.3
     version: 2.29.3
+  dayjs:
+    specifier: ^1.11.10
+    version: 1.11.10
   dexie:
     specifier: ^3.2.3
     version: 3.2.3
@@ -188,6 +194,9 @@ dependencies:
   url-join-ts:
     specifier: ^1.0.5
     version: 1.0.5
+  use-deep-compare:
+    specifier: ^1.1.0
+    version: 1.1.0(react@18.2.0)
   use-resize-observer:
     specifier: ^9.1.0
     version: 9.1.0(react-dom@18.2.0)(react@18.2.0)
@@ -1550,6 +1559,12 @@ packages:
 
   /@tauri-apps/plugin-process@2.0.0-alpha.3:
     resolution: {integrity: sha512-XfDBtjW5s584/OJvpaWo3EGtB/lRYltWUmdRotEs4CMWZRRidDfIWf39BWLEXOnik7aMZOA9LVURaTU2QHBy+g==}
+    dependencies:
+      '@tauri-apps/api': 2.0.0-alpha.11
+    dev: false
+
+  /@tauri-apps/plugin-shell@2.0.0-alpha.3:
+    resolution: {integrity: sha512-v4qLTE9DfzpYdcjZq3ASOC7gFtMtzIDWN5Bo2FheB+pHQvDRq8mrP8gTdkL4/9pQaOFlB0B+MKCwANYhD1jLEQ==}
     dependencies:
       '@tauri-apps/api': 2.0.0-alpha.11
     dev: false
@@ -3013,6 +3028,10 @@ packages:
     engines: {node: '>=0.11'}
     dev: false
 
+  /dayjs@1.11.10:
+    resolution: {integrity: sha512-vjAczensTgRcqDERK0SR2XMwsF/tSvnvlv6VcF2GIhg6Sx4yOIt/irsr1RDJsKiIyBzJDpCoXiWWq28MqH2cnQ==}
+    dev: false
+
   /debounce-fn@4.0.0:
     resolution: {integrity: sha512-8pYCQiL9Xdcg0UPSD3d+0KMlOjp+KGU5EPwYddgzQ7DATsg4fuUDjQtsYLmWjnk2obnNHgV3vE2Y4jejSOJVBQ==}
     engines: {node: '>=10'}
@@ -3123,6 +3142,11 @@ packages:
     resolution: {integrity: sha512-ZySD7Nf91aLB0RxL4KGrKHBXl7Eds1DAmEdcoVawXnLD7SDhpNgtuII2aAkg7a7QS41jxPSZ17p4VdGnMHk3MQ==}
     engines: {node: '>=0.4.0'}
     dev: true
+
+  /dequal@1.0.0:
+    resolution: {integrity: sha512-/Nd1EQbQbI9UbSHrMiKZjFLrXSnU328iQdZKPQf78XQI6C+gutkFUeoHpG5J08Ioa6HeRbRNFpSIclh1xyG0mw==}
+    engines: {node: '>=6'}
+    dev: false
 
   /dequal@2.0.3:
     resolution: {integrity: sha512-0je+qPKHEMohvfRTCEo3CrPG6cAzAYgmzKyxRiYSSDkS6eGJdyVJm7WaYA5ECaAD9wLB2T4EEeymA5aFVcYXCA==}
@@ -7208,6 +7232,15 @@ packages:
       '@types/react': 18.2.18
       react: 18.2.0
       tslib: 2.5.2
+    dev: false
+
+  /use-deep-compare@1.1.0(react@18.2.0):
+    resolution: {integrity: sha512-6yY3zmKNCJ1jjIivfZMZMReZjr8e6iC6Uqtp701jvWJ6ejC/usXD+JjmslZDPJQgX8P4B1Oi5XSLHkOLeYSJsA==}
+    peerDependencies:
+      react: '>=16.8.0'
+    dependencies:
+      dequal: 1.0.0
+      react: 18.2.0
     dev: false
 
   /use-resize-observer@9.1.0(react-dom@18.2.0)(react@18.2.0):

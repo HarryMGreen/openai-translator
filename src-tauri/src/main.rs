@@ -280,6 +280,7 @@ fn main() {
 
     let mut app = tauri::Builder::default()
         .plugin(tauri_plugin_http::init())
+        .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_single_instance::init(|app, argv, cwd| {
@@ -391,7 +392,15 @@ fn main() {
         .expect("error while building tauri application");
 
     #[cfg(target_os = "macos")]
-    app.set_activation_policy(tauri::ActivationPolicy::Regular);
+    {
+
+        let config = config::get_config_by_app(app.handle()).unwrap();
+        if config.hide_the_icon_in_the_dock.unwrap_or(false) {
+            app.set_activation_policy(tauri::ActivationPolicy::Accessory);
+        } else {
+            app.set_activation_policy(tauri::ActivationPolicy::Regular);
+        }
+    }
 
     app.run(|app, event| {
         match event {

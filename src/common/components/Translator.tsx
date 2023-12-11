@@ -64,10 +64,14 @@ import _ from 'underscore'
 import { GlobalSuspense } from './GlobalSuspense'
 import { useLazyEffect } from '../usehooks'
 import LogoWithText, { type LogoWithTextRef } from './LogoWithText'
-import { useTranslatorStore, setEditableText, setOriginalText } from '../store'
 import Toaster from './Toaster'
 import { readBinaryFile } from '@tauri-apps/plugin-fs'
 import { getCurrent } from '@tauri-apps/api/window'
+import { useDeepCompareCallback } from 'use-deep-compare'
+import { useTranslatorStore } from '../store'
+import useSWR from 'swr'
+import { IPromotionResponse, fetchPromotions, getPromotionItem } from '../services/promotion'
+import { usePromotionShowed } from '../hooks/usePromotionShowed'
 
 const cache = new LRUCache({
     max: 500,
@@ -417,7 +421,6 @@ export interface MovementXY {
 
 export interface IInnerTranslatorProps {
     uuid?: string
-    text: string
     writing?: boolean
     autoFocus?: boolean
     showSettingsIcon?: boolean
@@ -487,7 +490,7 @@ function InnerTranslator(props: IInnerTranslatorProps) {
             // eslint-disable-next-line @typescript-eslint/no-explicit-any
             ;(i18n as any).changeLanguage(settings?.i18n)
         }
-    }, [i18n, settings?.i18n])
+    }, [i18n, settings.i18n])
 
     const [autoFocus, setAutoFocus] = useState(false)
 
@@ -559,6 +562,7 @@ function InnerTranslator(props: IInnerTranslatorProps) {
     const [activateAction, setActivateAction] = useState<Action>()
 
     const currentTranslateMode = useMemo(() => {
+        editorRef.current?.focus()
         if (!activateAction) {
             return undefined
         }
@@ -718,7 +722,7 @@ function InnerTranslator(props: IInnerTranslatorProps) {
 
     const styles = useStyles({ theme, themeType, isDesktopApp: isDesktopApp(), showLogo })
     const [isLoading, setIsLoading] = useState(false)
-    const { editableText, originalText } = useTranslatorStore()
+    const [editableText, setEditableText] = useState('')
     const [isSpeakingEditableText, setIsSpeakingEditableText] = useState(false)
     const [tokenCount, setTokenCount] = useState(0)
     const [translatedText, setTranslatedText] = useState('')
@@ -729,15 +733,89 @@ function InnerTranslator(props: IInnerTranslatorProps) {
         settings?.autoCollect === undefined ? false : settings.autoCollect
     )
 
-    useEffect(() => {
-        setOriginalText(props.text)
-        setSelectedWord('')
-        setHighlightWords([])
-    }, [props.text, props.uuid])
+    const [translateDeps, setTranslateDeps] = useState<{
+        sourceLang?: LangCode
+        targetLang?: LangCode
+        text: string
+        action?: Action
+    }>({
+        sourceLang: undefined,
+        targetLang: undefined,
+        text: '',
+        action: undefined,
+    })
+
+    const getTranslateDeps = useCallback(
+        async function (text: string, action: Action): Promise<typeof translateDeps> {
+            const newSourceLang = await detectLang(text)
+            setSourceLang(newSourceLang)
+            return await new Promise((resolve) => {
+                const isTranslate = action.mode === 'translate'
+                setTargetLang((targetLang_) => {
+                    const newTargetLang = (() => {
+                        if (
+                            isTranslate &&
+                            (!stopAutomaticallyChangeTargetLang.current || newSourceLang === targetLang_)
+                        ) {
+                            return (
+                                (newSourceLang === 'zh-Hans' || newSourceLang === 'zh-Hant'
+                                    ? 'en'
+                                    : (settings?.defaultTargetLanguage as LangCode | undefined)) ?? 'en'
+                            )
+                        }
+                        if (!targetLang_) {
+                            if (settings?.defaultTargetLanguage) {
+                                return settings.defaultTargetLanguage as LangCode
+                            }
+                            return newSourceLang
+                        }
+                        return targetLang_
+                    })()
+                    setTranslateDeps((oldV) => {
+                        const newV: typeof translateDeps = {
+                            ...oldV,
+                            sourceLang: newSourceLang,
+                            targetLang: newTargetLang,
+                            text,
+                        }
+                        resolve(newV)
+                        return oldV
+                    })
+                    return newTargetLang
+                })
+            })
+        },
+        [settings.defaultTargetLanguage]
+    )
+
+    const { externalOriginalText } = useTranslatorStore()
 
     useEffect(() => {
-        setEditableText(originalText)
-    }, [originalText])
+        if (externalOriginalText === undefined) {
+            return
+        }
+        setActivateAction((action) => {
+            if (!action) {
+                setTranslateDeps((v) => {
+                    return {
+                        ...v,
+                        text: externalOriginalText,
+                    }
+                })
+                return action
+            }
+            getTranslateDeps(externalOriginalText, action).then((v) => {
+                setTranslateDeps(v)
+            })
+            return action
+        })
+        setSelectedWord('')
+        setHighlightWords([])
+    }, [externalOriginalText, getTranslateDeps, props.uuid])
+
+    useEffect(() => {
+        setEditableText(translateDeps.text)
+    }, [translateDeps.text])
 
     useLazyEffect(
         () => {
@@ -784,48 +862,18 @@ function InnerTranslator(props: IInnerTranslatorProps) {
     const [targetLang, setTargetLang] = useState<LangCode>()
     const stopAutomaticallyChangeTargetLang = useRef(false)
 
-    const settingsIsUndefined = settings === undefined
-
     useEffect(() => {
-        if (settingsIsUndefined) {
+        if (!activateAction) {
             return
         }
 
-        ;(async () => {
-            const newSourceLang = await detectLang(originalText)
-            setSourceLang(newSourceLang)
-            setTargetLang((targetLang_) => {
-                const newTargetLang = (() => {
-                    if (isTranslate && (!stopAutomaticallyChangeTargetLang.current || newSourceLang === targetLang_)) {
-                        return (
-                            (newSourceLang === 'zh-Hans' || newSourceLang === 'zh-Hant'
-                                ? 'en'
-                                : (settings?.defaultTargetLanguage as LangCode | undefined)) ?? 'en'
-                        )
-                    }
-                    if (!targetLang_) {
-                        if (settings?.defaultTargetLanguage) {
-                            return settings.defaultTargetLanguage as LangCode
-                        }
-                        return newSourceLang
-                    }
-                    return targetLang_
-                })()
-                setTranslateDeps((oldV) => {
-                    const newV = {
-                        sourceLang: newSourceLang,
-                        targetLang: newTargetLang,
-                        text: originalText,
-                    }
-                    if (_.isEqual(oldV, newV)) {
-                        return oldV
-                    }
-                    return newV
-                })
-                return newTargetLang
+        getTranslateDeps(editorRef.current?.value ?? '', activateAction).then((newTranslateDeps) => {
+            setTranslateDeps({
+                ...newTranslateDeps,
+                action: activateAction,
             })
-        })()
-    }, [originalText, isTranslate, settingsIsUndefined, settings?.defaultTargetLanguage, props.uuid])
+        })
+    }, [activateAction, getTranslateDeps, props.uuid])
 
     const [actionStr, setActionStr] = useState('')
 
@@ -933,36 +981,23 @@ function InnerTranslator(props: IInnerTranslatorProps) {
         autoCollectRef.current = autoCollect
     }, [autoCollect])
 
-    const [translateDeps, setTranslateDeps] = useState<{
-        sourceLang?: LangCode
-        targetLang?: LangCode
-        text?: string
-    }>({
-        sourceLang: undefined,
-        targetLang: undefined,
-        text: undefined,
-    })
-
-    const translateText = useCallback(
+    const translateText = useDeepCompareCallback(
         async (selectedWord: string, signal: AbortSignal) => {
-            const { text, sourceLang, targetLang } = translateDeps
-            if (!text || !sourceLang || !targetLang || !activateAction?.id) {
-                return
-            }
-            const action = await actionService.get(activateAction?.id)
-            if (!action) {
+            const { text, sourceLang, targetLang, action } = translateDeps
+            if (!text || !sourceLang || !targetLang || !action) {
                 return
             }
             setShowWordbookButtons(false)
-            const actionStrItem = currentTranslateMode
-                ? actionStrItems[currentTranslateMode]
+            const actionMode = action.mode
+            const actionStrItem = actionMode
+                ? actionStrItems[actionMode]
                 : {
                       beforeStr: 'Processing...',
                       afterStr: 'Processed',
                   }
             const beforeTranslate = () => {
                 let actionStr = actionStrItem.beforeStr
-                if (currentTranslateMode === 'translate' && sourceLang === targetLang) {
+                if (actionMode === 'translate' && sourceLang === targetLang) {
                     actionStr = 'Polishing...'
                 }
                 setActionStr(actionStr)
@@ -990,7 +1025,7 @@ function InnerTranslator(props: IInnerTranslatorProps) {
                     }
                 } else {
                     let actionStr = actionStrItem.afterStr
-                    if (currentTranslateMode === 'translate' && sourceLang === targetLang) {
+                    if (actionMode === 'translate' && sourceLang === targetLang) {
                         actionStr = 'Polished'
                     }
                     setActionStr(actionStr)
@@ -1062,17 +1097,7 @@ function InnerTranslator(props: IInnerTranslatorProps) {
                 }
             }
         },
-        [
-            translateDeps,
-            activateAction?.id,
-            currentTranslateMode,
-            settings?.provider,
-            settings?.apiModel,
-            translationFlag,
-            startLoading,
-            stopLoading,
-            t,
-        ]
+        [translateDeps, settings?.provider, settings?.apiModel, translationFlag, startLoading, stopLoading, t]
     )
 
     const translateControllerRef = useRef<AbortController | null>(null)
@@ -1134,8 +1159,9 @@ function InnerTranslator(props: IInnerTranslatorProps) {
         if (!isTauri()) {
             return
         }
+        let unlisten: (() => void) | undefined = undefined
         ;(async () => {
-            listen('tauri://file-drop', async (e: Event<string>) => {
+            unlisten = await listen('tauri://file-drop', async (e: Event<string>) => {
                 if (e.payload.length !== 1) {
                     alert('Only one file can be uploaded at a time.')
                     return
@@ -1167,7 +1193,12 @@ function InnerTranslator(props: IInnerTranslatorProps) {
                     return
                 }
 
-                setOriginalText('')
+                setTranslateDeps((v) => {
+                    return {
+                        ...v,
+                        text: '',
+                    }
+                })
                 setIsOCRProcessing(true)
 
                 await (await worker).loadLanguage('eng+chi_sim+chi_tra+jpn+rus+kor')
@@ -1175,18 +1206,32 @@ function InnerTranslator(props: IInnerTranslatorProps) {
 
                 const { data } = await (await worker).recognize(file)
 
-                setOriginalText(data.text)
+                if (activateAction) {
+                    const newTranslateDeps = await getTranslateDeps(data.text, activateAction)
+
+                    setTranslateDeps(newTranslateDeps)
+                }
+
                 setIsOCRProcessing(false)
 
                 await (await worker).terminate()
             })
         })()
-    }, [])
+
+        return () => {
+            unlisten?.()
+        }
+    }, [activateAction, getTranslateDeps])
 
     const onDrop = async (acceptedFiles: File[]) => {
         const worker = createWorker()
 
-        setOriginalText('')
+        setTranslateDeps((v) => {
+            return {
+                ...v,
+                text: '',
+            }
+        })
         setIsOCRProcessing(true)
 
         if (acceptedFiles.length !== 1) {
@@ -1211,7 +1256,11 @@ function InnerTranslator(props: IInnerTranslatorProps) {
 
         const { data } = await (await worker).recognize(file)
 
-        setOriginalText(data.text)
+        if (activateAction) {
+            const newTranslateDeps = await getTranslateDeps(data.text, activateAction)
+            setTranslateDeps(newTranslateDeps)
+        }
+
         setIsOCRProcessing(false)
 
         await (await worker).terminate()
@@ -1345,6 +1394,85 @@ function InnerTranslator(props: IInnerTranslatorProps) {
         }
     }, [showSettings])
 
+    const showSubmitButton = useMemo(() => {
+        if (activateAction?.id === undefined) {
+            return false
+        }
+
+        if (translateDeps.action?.id === undefined) {
+            return false
+        }
+
+        if (!editableText) {
+            return false
+        }
+
+        if (editableText !== translateDeps.text) {
+            return true
+        }
+
+        return false
+    }, [activateAction?.id, editableText, translateDeps.action?.id, translateDeps.text])
+
+    const handleSubmit = useCallback(
+        (e: React.SyntheticEvent<HTMLButtonElement> | React.KeyboardEvent<HTMLTextAreaElement>) => {
+            e.preventDefault()
+            e.stopPropagation()
+            let action = activateAction
+            if (!action) {
+                action = actions?.find((action) => action.mode === 'translate')
+                setActivateAction(action)
+            }
+            if (action) {
+                getTranslateDeps(editableText, action).then((v) => {
+                    setTranslateDeps(v)
+                })
+            }
+        },
+        [actions, activateAction, editableText, getTranslateDeps]
+    )
+
+    const { data: promotions, mutate: refetchPromotions } = useSWR<IPromotionResponse>(
+        ['promotions', showSettings],
+        fetchPromotions
+    )
+
+    useEffect(() => {
+        const timer = setInterval(
+            () => {
+                refetchPromotions()
+            },
+            1000 * 60 * 10
+        )
+        return () => {
+            clearInterval(timer)
+        }
+    }, [refetchPromotions])
+
+    useEffect(() => {
+        if (!isTauri()) {
+            return undefined
+        }
+        let unlisten: (() => void) | undefined = undefined
+        const appWindow = getCurrent()
+        appWindow
+            .listen('tauri://focus', () => {
+                refetchPromotions()
+            })
+            .then((cb) => {
+                unlisten = cb
+            })
+        return () => {
+            unlisten?.()
+        }
+    }, [refetchPromotions])
+
+    const promotion = useMemo(() => {
+        return getPromotionItem(promotions?.openai_api_key)
+    }, [promotions])
+
+    const { promotionShowed } = usePromotionShowed(promotion)
+
     return (
         <div
             className={clsx(styles.popupCard, {
@@ -1357,17 +1485,13 @@ function InnerTranslator(props: IInnerTranslatorProps) {
                 paddingBottom: showSettings ? '0px' : '30px',
             }}
         >
-            <div
-                style={{
-                    display: showSettings ? 'block' : 'none',
-                }}
-            >
+            {showSettings && (
                 <InnerSettings
                     onSave={(oldSettings) => {
                         props.onSettingsSave?.(oldSettings)
                     }}
                 />
-            </div>
+            )}
             <div
                 style={{
                     display: !showSettings ? 'block' : 'none',
@@ -1414,7 +1538,10 @@ function InnerTranslator(props: IInnerTranslatorProps) {
                             <div
                                 className={styles.arrow}
                                 onClick={() => {
-                                    setOriginalText(translatedText)
+                                    setTranslateDeps((v) => ({
+                                        ...v,
+                                        text: translatedText,
+                                    }))
                                     setSourceLang(targetLang ?? 'en')
                                     setTargetLang(sourceLang)
                                 }}
@@ -1707,16 +1834,13 @@ function InnerTranslator(props: IInnerTranslatorProps) {
                                             onKeyDown={(e) => {
                                                 e.stopPropagation()
                                             }}
+                                            onKeyUp={(e) => {
+                                                e.stopPropagation()
+                                            }}
                                             onKeyPress={(e) => {
+                                                e.stopPropagation()
                                                 if (e.key === 'Enter' && !e.shiftKey) {
-                                                    e.preventDefault()
-                                                    e.stopPropagation()
-                                                    if (!activateAction) {
-                                                        setActivateAction(
-                                                            actions?.find((action) => action.mode === 'translate')
-                                                        )
-                                                    }
-                                                    setOriginalText(editableText)
+                                                    handleSubmit(e)
                                                 }
                                             }}
                                         />
@@ -1725,8 +1849,8 @@ function InnerTranslator(props: IInnerTranslatorProps) {
                                                 display: 'flex',
                                                 flexDirection: 'row',
                                                 alignItems: 'center',
-                                                paddingTop: editableText && editableText !== originalText ? 8 : 0,
-                                                height: editableText && editableText !== originalText ? 28 : 0,
+                                                paddingTop: showSubmitButton ? 8 : 0,
+                                                height: showSubmitButton ? 28 : 0,
                                                 transition: 'all 0.3s linear',
                                                 overflow: 'hidden',
                                             }}
@@ -1746,16 +1870,7 @@ function InnerTranslator(props: IInnerTranslatorProps) {
                                                 </div>
                                                 <Button
                                                     size='mini'
-                                                    onClick={(e) => {
-                                                        e.preventDefault()
-                                                        e.stopPropagation()
-                                                        if (!activateAction) {
-                                                            setActivateAction(
-                                                                actions?.find((action) => action.mode === 'translate')
-                                                            )
-                                                        }
-                                                        setOriginalText(editableText)
-                                                    }}
+                                                    onClick={handleSubmit}
                                                     startEnhancer={<IoIosRocket size={13} />}
                                                     overrides={{
                                                         StartEnhancer: {
@@ -1882,7 +1997,7 @@ function InnerTranslator(props: IInnerTranslatorProps) {
                                 )}
                             </div>
                         </div>
-                        {originalText !== '' && (
+                        {translateDeps.text !== '' && activateAction?.id === translateDeps.action?.id && (
                             <div
                                 className={styles.popupCardTranslatedContainer}
                                 ref={translatedContainerRef}
@@ -2084,7 +2199,30 @@ function InnerTranslator(props: IInnerTranslatorProps) {
                                     fontSize: '11px',
                                 }}
                             >
-                                {showSettings ? <TiArrowBack size={15} /> : <IoSettingsOutline size={15} />}
+                                {showSettings ? (
+                                    <TiArrowBack size={15} />
+                                ) : (
+                                    <div
+                                        style={{
+                                            position: 'relative',
+                                        }}
+                                    >
+                                        <IoSettingsOutline size={15} />
+                                        {promotion && !promotionShowed && (
+                                            <div
+                                                style={{
+                                                    position: 'absolute',
+                                                    width: '0.45rem',
+                                                    height: '0.45rem',
+                                                    top: '-4px',
+                                                    right: '-6px',
+                                                    borderRadius: '50%',
+                                                    backgroundColor: theme.colors.warning400,
+                                                }}
+                                            />
+                                        )}
+                                    </div>
+                                )}
                                 {showSettings ? t('Go back') : ''}
                             </div>
                         </Button>
@@ -2112,7 +2250,6 @@ function InnerTranslator(props: IInnerTranslatorProps) {
                         onCancel={() => setVocabularyType('hide')}
                         onInsert={(content, highlightWords) => {
                             setEditableText(content)
-                            setOriginalText(content)
                             setHighlightWords(highlightWords)
                             setSelectedWord('')
                             setActivateAction(actions?.find((action) => action.mode === 'translate'))
