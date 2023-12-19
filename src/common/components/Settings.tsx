@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useMemo, useReducer, useState } from 'react'
 import _ from 'underscore'
 import { Tabs, Tab, StyledTabList, StyledTabPanel } from 'baseui-sd/tabs-motion'
-import { SlSpeech } from 'react-icons/sl'
 import icon from '../assets/images/icon-large.png'
 import beams from '../assets/images/beams.jpg'
 import wechat from '../assets/images/wechat.png'
@@ -13,25 +12,25 @@ import { Provider as StyletronProvider } from 'styletron-react'
 import { BaseProvider } from 'baseui-sd'
 import { Input } from 'baseui-sd/input'
 import { createForm } from './Form'
-import { Button } from 'baseui-sd/button'
+import { Button, ButtonProps } from 'baseui-sd/button'
 import { TranslateMode, APIModel } from '../translate'
-import { Select, Value, Option } from 'baseui-sd/select'
+import { Select, Value, Option, SelectProps } from 'baseui-sd/select'
 import { Checkbox } from 'baseui-sd/checkbox'
-import { supportedLanguages } from '../lang'
+import { LangCode, supportedLanguages } from '../lang'
 import { useRecordHotkeys } from 'react-hotkeys-hook'
 import { createUseStyles } from 'react-jss'
 import clsx from 'clsx'
-import { ISettings, IThemedStyleProps, ThemeType } from '../types'
+import { ISettings, IThemedStyleProps, LanguageDetectionEngine, ThemeType } from '../types'
 import { useTheme } from '../hooks/useTheme'
 import { IoCloseCircle, IoRefreshSharp, IoSettingsOutline } from 'react-icons/io5'
 import { useTranslation } from 'react-i18next'
 import AppConfig from '../../../package.json'
 import { useSettings } from '../hooks/useSettings'
-import { defaultTTSProvider, langCode2TTSLang } from '../tts'
+import { defaultTTSProvider, langCode2TTSLang, ttsLangTestTextMap } from '../tts'
 import { RiDeleteBin5Line } from 'react-icons/ri'
 import { IoIosHelpCircleOutline, IoIosSave, IoMdAdd } from 'react-icons/io'
 import { TTSProvider } from '../tts/types'
-import { getEdgeVoices } from '../tts/edge-tts'
+import { fetchEdgeVoices } from '../tts/edge-tts'
 import { useThemeType } from '../hooks/useThemeType'
 import { Slider } from 'baseui-sd/slider'
 import { useLiveQuery } from 'dexie-react-hooks'
@@ -55,6 +54,10 @@ import { Markdown } from './Markdown'
 import { open } from '@tauri-apps/plugin-shell'
 import { getCurrent } from '@tauri-apps/api/window'
 import { usePromotionShowed } from '../hooks/usePromotionShowed'
+import { trackEvent } from '@aptabase/tauri'
+import { Skeleton } from 'baseui-sd/skeleton'
+import { SpeakerIcon } from './SpeakerIcon'
+import { RxSpeakerLoud } from 'react-icons/rx'
 
 const langOptions: Value = supportedLanguages.reduce((acc, [id, label]) => {
     return [
@@ -124,11 +127,6 @@ interface AutoTranslateCheckboxProps {
     value?: boolean
     onChange?: (value: boolean) => void
     onBlur?: () => void
-}
-
-interface IProviderSelectorProps {
-    value?: Provider
-    onChange?: (value: Provider) => void
 }
 
 function TranslateModeSelector({ value, onChange, onBlur }: ITranslateModeSelectorProps) {
@@ -203,24 +201,58 @@ function ThemeTypeSelector({ value, onChange, onBlur }: IThemeTypeSelectorProps)
     )
 }
 
+interface ILanguageDetectionEngineSelectorProps {
+    value?: LanguageDetectionEngine
+    onChange?: (value: LanguageDetectionEngine) => void
+    onBlur?: () => void
+}
+
+function LanguageDetectionEngineSelector({ value, onChange, onBlur }: ILanguageDetectionEngineSelectorProps) {
+    const { t } = useTranslation()
+
+    return (
+        <Select
+            size='compact'
+            onBlur={onBlur}
+            searchable={false}
+            clearable={false}
+            value={
+                value
+                    ? [
+                          {
+                              id: value,
+                          },
+                      ]
+                    : []
+            }
+            onChange={(params) => {
+                onChange?.(params.value[0].id as LanguageDetectionEngine)
+            }}
+            options={[
+                { label: t('Baidu'), id: 'baidu' },
+                { label: t('Google'), id: 'google' },
+                { label: t('Bing'), id: 'bing' },
+                { label: t('Local'), id: 'local' },
+            ]}
+        />
+    )
+}
+
 const useTTSSettingsStyles = createUseStyles({
-    settingsLabel: (props: IThemedStyleProps) => ({
+    label: (props: IThemedStyleProps) => ({
         color: props.theme.colors.contentPrimary,
-        display: 'block',
-        marignTop: '4px',
+        fontWeight: 500,
     }),
     voiceSelector: {
         display: 'flex',
         alignItems: 'center',
         gap: '6px',
-        marginTop: '10px',
         width: '100%',
     },
-    providerSelector: {
-        marginTop: '10px',
-    },
     formControl: {
-        marginBottom: '12px',
+        display: 'flex',
+        flexDirection: 'column',
+        gap: '10px',
     },
     tickBar: (props: IThemedStyleProps) => ({
         color: props.theme.colors.contentPrimary,
@@ -232,7 +264,54 @@ const useTTSSettingsStyles = createUseStyles({
     }),
 })
 
-interface TTSVoicesSettingsProps {
+interface ISpeakerButtonProps extends ButtonProps {
+    iconSize?: number
+    provider?: TTSProvider
+    lang: LangCode
+    voice: string
+    rate?: number
+    volume?: number
+    text?: string
+}
+
+function SpeakerButton({
+    iconSize = 13,
+    provider,
+    text: text_,
+    lang,
+    voice,
+    rate,
+    volume,
+    ...buttonProps
+}: ISpeakerButtonProps) {
+    const text = text_ ?? ttsLangTestTextMap[lang]
+
+    return (
+        <Button
+            shape='circle'
+            size='mini'
+            {...buttonProps}
+            onClick={(e) => {
+                e.preventDefault()
+                e.stopPropagation()
+                const target = e.target as HTMLButtonElement
+                target.querySelector('div')?.click()
+            }}
+        >
+            <SpeakerIcon
+                size={iconSize}
+                provider={provider}
+                text={text}
+                lang={lang}
+                voice={voice}
+                rate={rate}
+                volume={volume}
+            />
+        </Button>
+    )
+}
+
+interface ITTSVoicesSettingsProps {
     value?: ISettings['tts']
     onChange?: (value: ISettings['tts']) => void
     onBlur?: () => void
@@ -246,7 +325,9 @@ const ttsProviderOptions: {
     { label: 'System Default', id: 'WebSpeech' },
 ]
 
-function TTSVoicesSettings({ value, onChange, onBlur }: TTSVoicesSettingsProps) {
+function TTSVoicesSettings({ value, onChange, onBlur }: ITTSVoicesSettingsProps) {
+    console.debug('render tts voices settings')
+
     const { t } = useTranslation()
     const { theme, themeType } = useTheme()
 
@@ -254,29 +335,43 @@ function TTSVoicesSettings({ value, onChange, onBlur }: TTSVoicesSettingsProps) 
 
     const [showLangSelector, setShowLangSelector] = useState(false)
 
-    const [supportVoices, setSupportVoices] = useState<SpeechSynthesisVoice[]>([])
+    const [supportedVoices, setSupportedVoices] = useState<SpeechSynthesisVoice[]>([])
+
+    const provider = value?.provider ?? defaultTTSProvider
+
+    const { data: edgeVoices, isLoading: isEdgeVoicesLoading } = useSWR(
+        provider === 'EdgeTTS' ? 'edgeVoices' : null,
+        fetchEdgeVoices
+    )
+
+    const { data: webSpeechVoices, isLoading: isWebSpeechVoicesLoading } = useSWR(
+        provider === 'WebSpeech' ? 'webSpeechVoices' : null,
+        async () => {
+            return speechSynthesis.getVoices()
+        }
+    )
+
+    const isVoicesLoading = isEdgeVoicesLoading || isWebSpeechVoicesLoading
 
     useEffect(() => {
-        ;(async () => {
-            switch (value?.provider ?? defaultTTSProvider) {
-                case 'EdgeTTS':
-                    setSupportVoices(await getEdgeVoices())
-                    break
-                case 'WebSpeech':
-                    setSupportVoices(speechSynthesis.getVoices())
-                    break
-                default:
-                    setSupportVoices(await getEdgeVoices())
-                    break
-            }
-        })()
-    }, [value?.provider])
+        switch (provider) {
+            case 'EdgeTTS':
+                setSupportedVoices(edgeVoices ?? [])
+                break
+            case 'WebSpeech':
+                setSupportedVoices(webSpeechVoices ?? [])
+                break
+            default:
+                setSupportedVoices(edgeVoices ?? [])
+                break
+        }
+    }, [edgeVoices, provider, webSpeechVoices])
 
     const getLangOptions = useCallback(
         (lang: string) => {
             return supportedLanguages.reduce((acc, [langCode, label]) => {
                 const ttsLang = langCode2TTSLang[langCode]
-                if (ttsLang && supportVoices.find((v) => v.lang === ttsLang)) {
+                if (ttsLang && supportedVoices.find((v) => v.lang === ttsLang)) {
                     if (value?.voices?.find((item) => item.lang === langCode) && langCode !== lang) {
                         return acc
                     }
@@ -291,17 +386,51 @@ function TTSVoicesSettings({ value, onChange, onBlur }: TTSVoicesSettingsProps) 
                 return acc
             }, [] as Value)
         },
-        [value?.voices, supportVoices]
+        [value?.voices, supportedVoices]
     )
 
     const getVoiceOptions = useCallback(
-        (lang: string) => {
+        (lang: LangCode) => {
             const ttsLang = langCode2TTSLang[lang]
-            return supportVoices
+            return supportedVoices
                 .filter((v) => v.lang.split('-')[0] === lang || v.lang === ttsLang)
-                .map((sv) => ({ id: sv.voiceURI, label: sv.name, lang: sv.lang }))
+                .filter((v, idx, items) => items.findIndex((item) => item.name === v.name) === idx)
+                .map((sv) => ({
+                    id: sv.voiceURI,
+                    label: (
+                        <div
+                            style={{
+                                display: 'flex',
+                                flexDirection: 'row',
+                                alignItems: 'center',
+                                gap: 8,
+                            }}
+                            key={sv.voiceURI}
+                        >
+                            <SpeakerButton
+                                shape='round'
+                                kind='secondary'
+                                iconSize={12}
+                                overrides={{
+                                    Root: {
+                                        style: {
+                                            padding: '4px',
+                                        },
+                                    },
+                                }}
+                                provider={value?.provider}
+                                lang={lang}
+                                voice={sv.voiceURI}
+                                volume={value?.volume}
+                                rate={value?.rate}
+                            />
+                            {sv.name}
+                        </div>
+                    ),
+                    lang: sv.lang,
+                }))
         },
-        [supportVoices]
+        [supportedVoices, value?.provider, value?.rate, value?.volume]
     )
 
     const handleDeleteLang = useCallback(
@@ -317,13 +446,13 @@ function TTSVoicesSettings({ value, onChange, onBlur }: TTSVoicesSettingsProps) 
     )
 
     const handleChangeLang = useCallback(
-        (prevLang: string, newLang: string) => {
+        (prevLang: LangCode, newLang: LangCode) => {
             const voices = value?.voices ?? []
             const newVoices = voices.map((item) => {
                 if (item.lang === prevLang) {
                     return {
-                        ...item,
                         lang: newLang,
+                        voice: '',
                     }
                 }
                 return item
@@ -335,7 +464,7 @@ function TTSVoicesSettings({ value, onChange, onBlur }: TTSVoicesSettingsProps) 
     )
 
     const handleAddLang = useCallback(
-        (lang: string) => {
+        (lang: LangCode) => {
             const voices = value?.voices ?? []
             onChange?.({
                 ...value,
@@ -380,23 +509,28 @@ function TTSVoicesSettings({ value, onChange, onBlur }: TTSVoicesSettingsProps) 
     )
 
     return (
-        <div>
+        <div
+            style={{
+                display: 'flex',
+                flexDirection: 'column',
+                gap: 20,
+                marginTop: 20,
+            }}
+        >
             <div className={styles.formControl}>
-                <label className={styles.settingsLabel}>{t('Provider')}</label>
-                <div className={styles.providerSelector}>
-                    <Select
-                        size='compact'
-                        clearable={false}
-                        searchable={false}
-                        options={ttsProviderOptions}
-                        value={[{ id: value?.provider ?? 'EdgeTTS' }]}
-                        onChange={({ option }) => handleChangeProvider(option?.id as TTSProvider)}
-                        onBlur={onBlur}
-                    />
-                </div>
+                <label className={styles.label}>{t('Provider')}</label>
+                <Select
+                    size='compact'
+                    clearable={false}
+                    searchable={false}
+                    options={ttsProviderOptions}
+                    value={[{ id: value?.provider ?? 'EdgeTTS' }]}
+                    onChange={({ option }) => handleChangeProvider(option?.id as TTSProvider)}
+                    onBlur={onBlur}
+                />
             </div>
             <div className={styles.formControl}>
-                <label className={styles.settingsLabel}>{t('Rate')}</label>
+                <label className={styles.label}>{t('Rate')}</label>
                 <Slider
                     min={1}
                     max={20}
@@ -416,7 +550,7 @@ function TTSVoicesSettings({ value, onChange, onBlur }: TTSVoicesSettingsProps) 
                 />
             </div>
             <div className={styles.formControl}>
-                <label className={styles.settingsLabel}>{t('Volume')}</label>
+                <label className={styles.label}>{t('Volume')}</label>
                 <Slider
                     min={0}
                     max={100}
@@ -436,60 +570,80 @@ function TTSVoicesSettings({ value, onChange, onBlur }: TTSVoicesSettingsProps) 
                 />
             </div>
             <div className={styles.formControl}>
-                <label className={styles.settingsLabel}>{t('Voice')}</label>
-                {(value?.voices ?? []).map(({ lang, voice }) => (
-                    <div className={styles.voiceSelector} key={lang}>
-                        <Select
-                            size='compact'
-                            clearable={false}
-                            options={getLangOptions(lang)}
-                            overrides={{
-                                Root: {
-                                    style: {
-                                        width: '140px',
-                                        flexShrink: 0,
-                                    },
-                                },
-                            }}
-                            onChange={({ option }) => handleChangeLang(lang, option?.id as string)}
-                            value={[{ id: lang }]}
-                        />
-                        <Select
-                            size='compact'
-                            options={getVoiceOptions(lang)}
-                            overrides={{
-                                Root: {
-                                    style: {
-                                        flexShrink: 1,
-                                        minWidth: '200px',
-                                    },
-                                },
-                            }}
-                            value={[{ id: voice }]}
-                            onChange={({ option }) => handleChangeVoice(lang, option?.id as string)}
-                            clearable={false}
-                            onBlur={onBlur}
-                        />
-                        <Button
-                            shape='circle'
-                            size='mini'
-                            overrides={{
-                                Root: {
-                                    style: {
-                                        flexShrink: 0,
-                                    },
-                                },
-                            }}
-                            onClick={(e) => {
-                                e.preventDefault()
-                                e.stopPropagation()
-                                handleDeleteLang(lang)
-                            }}
-                        >
-                            <RiDeleteBin5Line />
-                        </Button>
-                    </div>
-                ))}
+                <label className={styles.label}>{t('Voice')}</label>
+                <div
+                    style={{
+                        display: 'flex',
+                        flexDirection: 'column',
+                        gap: 10,
+                    }}
+                >
+                    {isVoicesLoading && <Skeleton rows={6} height='300px' width='100%' animation />}
+                    {!isVoicesLoading &&
+                        (value?.voices ?? []).map(({ lang, voice }) => {
+                            const langOptions = getLangOptions(lang)
+                            const selectedLang = langOptions.find((opt) => opt.id === lang)
+                            const voiceOptions = getVoiceOptions(lang)
+                            const selectedVoice = voiceOptions.find((opt) => opt.id === voice)
+                            return (
+                                <div className={styles.voiceSelector} key={lang}>
+                                    <Select
+                                        key={`lang-${lang}`}
+                                        size='mini'
+                                        clearable={false}
+                                        options={langOptions}
+                                        placeholder={t('Please select a language')}
+                                        overrides={{
+                                            Root: {
+                                                style: {
+                                                    width: '115px',
+                                                    flexShrink: 0,
+                                                },
+                                            },
+                                        }}
+                                        onChange={({ option }) => handleChangeLang(lang, option?.id as LangCode)}
+                                        value={selectedLang ? [{ id: selectedLang.id }] : undefined}
+                                    />
+                                    <Select
+                                        size='mini'
+                                        options={voiceOptions}
+                                        placeholder={t('Please select a voice')}
+                                        overrides={{
+                                            Root: {
+                                                style: {
+                                                    flexShrink: 1,
+                                                    minWidth: '215px',
+                                                },
+                                            },
+                                        }}
+                                        value={selectedVoice ? [{ id: selectedVoice.id }] : undefined}
+                                        onChange={({ option }) => handleChangeVoice(lang, option?.id as string)}
+                                        clearable={false}
+                                        onBlur={onBlur}
+                                        autoFocus={!selectedVoice}
+                                    />
+                                    <Button
+                                        shape='circle'
+                                        size='mini'
+                                        overrides={{
+                                            Root: {
+                                                style: {
+                                                    flexShrink: 0,
+                                                },
+                                            },
+                                        }}
+                                        onClick={(e) => {
+                                            e.preventDefault()
+                                            e.stopPropagation()
+                                            handleDeleteLang(lang)
+                                        }}
+                                    >
+                                        <RiDeleteBin5Line size={12} />
+                                    </Button>
+                                </div>
+                            )
+                        })}
+                </div>
                 <div
                     style={{
                         display: 'flex',
@@ -501,13 +655,22 @@ function TTSVoicesSettings({ value, onChange, onBlur }: TTSVoicesSettingsProps) 
                     {showLangSelector && (
                         <Select
                             size='mini'
+                            placeholder={t('Please select a language')}
                             clearable={false}
                             options={getLangOptions('')}
-                            onChange={({ option }) => handleAddLang(option?.id as string)}
+                            onChange={({ option }) => handleAddLang(option?.id as LangCode)}
+                            autoFocus
                         />
                     )}
                     <Button
                         size='mini'
+                        overrides={{
+                            Root: {
+                                style: {
+                                    flexShrink: 0,
+                                },
+                            },
+                        }}
                         startEnhancer={() => <IoMdAdd size={12} />}
                         onClick={(e) => {
                             e.preventDefault()
@@ -870,6 +1033,7 @@ const useStyles = createUseStyles({
     footer: (props: IThemedStyleProps) =>
         props.isDesktopApp
             ? {
+                  zIndex: 999,
                   color: props.theme.colors.contentSecondary,
                   position: 'fixed',
                   width: '100%',
@@ -1031,10 +1195,54 @@ function HotkeyRecorder({ value, onChange, onBlur, testId }: IHotkeyRecorderProp
     )
 }
 
-function ProviderSelector({ value, onChange }: IProviderSelectorProps) {
+interface IProviderSelectorProps {
+    value?: Provider
+    onChange?: (value: Provider) => void
+    hasPromotion?: boolean
+}
+
+function ProviderSelector({ value, onChange, hasPromotion }: IProviderSelectorProps) {
+    const { theme } = useTheme()
+
+    let overrides: SelectProps['overrides'] = undefined
+    if (hasPromotion && value !== 'OpenAI') {
+        overrides = {
+            ControlContainer: {
+                style: {
+                    borderColor: theme.colors.warning300,
+                },
+            },
+        }
+    }
+
     const options = utils.isDesktopApp()
         ? ([
-              { label: 'OpenAI', id: 'OpenAI' },
+              {
+                  label: (
+                      <div
+                          style={{
+                              display: 'flex',
+                              flexDirection: 'row',
+                              alignItems: 'center',
+                              gap: 10,
+                          }}
+                      >
+                          OpenAI
+                          {hasPromotion && value !== 'OpenAI' && (
+                              <div
+                                  style={{
+                                      width: '0.45rem',
+                                      height: '0.45rem',
+                                      borderRadius: '50%',
+                                      backgroundColor: theme.colors.warning300,
+                                  }}
+                              />
+                          )}
+                      </div>
+                  ),
+                  id: 'OpenAI',
+              },
+              { label: 'Gemini', id: 'Gemini' },
               // { label: 'ChatGPT (Web)', id: 'ChatGPT' },
               { label: 'Azure', id: 'Azure' },
               { label: 'MiniMax', id: 'MiniMax' },
@@ -1044,8 +1252,33 @@ function ProviderSelector({ value, onChange }: IProviderSelectorProps) {
               id: Provider
           }[])
         : ([
-              { label: 'OpenAI', id: 'OpenAI' },
+              {
+                  label: (
+                      <div
+                          style={{
+                              display: 'flex',
+                              flexDirection: 'row',
+                              alignItems: 'center',
+                              gap: 10,
+                          }}
+                      >
+                          OpenAI
+                          {hasPromotion && value !== 'OpenAI' && (
+                              <div
+                                  style={{
+                                      width: '0.45rem',
+                                      height: '0.45rem',
+                                      borderRadius: '50%',
+                                      backgroundColor: theme.colors.warning300,
+                                  }}
+                              />
+                          )}
+                      </div>
+                  ),
+                  id: 'OpenAI',
+              },
               { label: 'ChatGPT (Web)', id: 'ChatGPT' },
+              { label: 'Gemini', id: 'Gemini' },
               { label: 'Azure', id: 'Azure' },
               { label: 'MiniMax', id: 'MiniMax' },
               { label: 'Moonshot', id: 'Moonshot' },
@@ -1056,6 +1289,7 @@ function ProviderSelector({ value, onChange }: IProviderSelectorProps) {
 
     return (
         <Select
+            overrides={overrides}
             size='compact'
             searchable={false}
             clearable={false}
@@ -1133,6 +1367,13 @@ export function InnerSettings({ onSave, showFooter = false }: IInnerSettingsProp
         }
     }, [isTauri, refetchPromotions])
 
+    useEffect(() => {
+        if (!isTauri) {
+            return
+        }
+        trackEvent('screen_view', { name: 'Settings' })
+    }, [isTauri])
+
     const { theme, themeType } = useTheme()
 
     const { refreshThemeType } = useThemeType()
@@ -1140,36 +1381,8 @@ export function InnerSettings({ onSave, showFooter = false }: IInnerSettingsProp
     const { t } = useTranslation()
 
     const [loading, setLoading] = useState(false)
-    const [values, setValues] = useState<ISettings>({
-        automaticCheckForUpdates: false,
-        apiKeys: '',
-        apiURL: utils.defaultAPIURL,
-        apiURLPath: utils.defaultAPIURLPath,
-        apiModel: utils.defaultAPIModel,
-        provider: utils.defaultProvider,
-        chatgptModel: utils.defaultChatGPTModel,
-        azureAPIKeys: '',
-        azureAPIURL: utils.defaultAPIURL,
-        azureAPIURLPath: utils.defaultAPIURLPath,
-        azureAPIModel: utils.defaultAPIModel,
-        miniMaxGroupID: '',
-        miniMaxAPIKey: '',
-        moonshotAPIKey: '',
-        moonshotAPIModel: '',
-        autoTranslate: utils.defaultAutoTranslate,
-        defaultTranslateMode: 'translate',
-        defaultTargetLanguage: utils.defaultTargetLanguage,
-        alwaysShowIcons: !isTauri,
-        hotkey: '',
-        displayWindowHotkey: '',
-        i18n: utils.defaulti18n,
-        restorePreviousPosition: false,
-        selectInputElementsText: utils.defaultSelectInputElementsText,
-        readSelectedWordsFromInputElementsText: utils.defaultReadSelectedWordsFromInputElementsText,
-        runAtStartup: false,
-        writingTargetLanguage: utils.defaultWritingTargetLanguage,
-        hideTheIconInTheDock: false,
-    })
+    const { settings, setSettings } = useSettings()
+    const [values, setValues] = useState<ISettings>(settings)
     const [prevValues, setPrevValues] = useState<ISettings>(values)
 
     const [form] = useForm()
@@ -1177,8 +1390,6 @@ export function InnerSettings({ onSave, showFooter = false }: IInnerSettingsProp
     useEffect(() => {
         form.setFieldsValue(values)
     }, [form, values])
-
-    const { settings, setSettings } = useSettings()
 
     useEffect(() => {
         if (settings) {
@@ -1222,6 +1433,10 @@ export function InnerSettings({ onSave, showFooter = false }: IInnerSettingsProp
 
             if (data.themeType) {
                 refreshThemeType()
+            }
+
+            if (isTauri) {
+                trackEvent('save_settings')
             }
 
             toast(t('Saved'), {
@@ -1393,17 +1608,29 @@ export function InnerSettings({ onSave, showFooter = false }: IInnerSettingsProp
         return getPromotionItem(promotions?.openai_api_key)
     }, [promotions])
 
-    const { setPromotionShowed } = usePromotionShowed(openaiAPIKeyPromotion)
+    const { promotionShowed, setPromotionShowed } = usePromotionShowed(openaiAPIKeyPromotion)
+
+    const isOpenAI = values.provider === 'OpenAI'
 
     useEffect(() => {
-        setPromotionShowed(true)
-    }, [setPromotionShowed])
+        if (isOpenAI) {
+            setPromotionShowed(true)
+        }
+        // const timer = setTimeout(() => {
+        //     setPromotionShowed(true)
+        // }, 15000)
+        // return () => {
+        //     clearTimeout(timer)
+        // }
+    }, [setPromotionShowed, isOpenAI])
+
+    console.debug('render settings')
 
     return (
         <div
             style={{
-                paddingTop: isDesktopApp ? '136px' : undefined,
-                paddingBottom: isDesktopApp ? '32px' : undefined,
+                paddingTop: utils.isBrowserExtensionOptions() ? undefined : '136px',
+                paddingBottom: utils.isBrowserExtensionOptions() ? undefined : '32px',
                 background: theme.colors.backgroundPrimary,
                 minWidth: isDesktopApp ? 450 : 400,
                 maxHeight: utils.isUserscript() ? 'calc(100vh - 32px)' : undefined,
@@ -1413,10 +1640,10 @@ export function InnerSettings({ onSave, showFooter = false }: IInnerSettingsProp
         >
             <nav
                 style={{
-                    position: isDesktopApp ? 'fixed' : undefined,
-                    left: isDesktopApp ? 0 : undefined,
-                    top: isDesktopApp ? 0 : undefined,
-                    zIndex: 1,
+                    position: utils.isBrowserExtensionOptions() ? 'sticky' : 'fixed',
+                    left: 0,
+                    top: 0,
+                    zIndex: 1001,
                     width: '100%',
                     display: 'flex',
                     flexDirection: 'column',
@@ -1494,7 +1721,7 @@ export function InnerSettings({ onSave, showFooter = false }: IInnerSettingsProp
                     <Tab
                         title={t('TTS')}
                         artwork={() => {
-                            return <SlSpeech size={14} />
+                            return <RxSpeakerLoud size={14} />
                         }}
                         overrides={tabOverrides}
                     />
@@ -1552,6 +1779,7 @@ export function InnerSettings({ onSave, showFooter = false }: IInnerSettingsProp
                 form={form}
                 style={{
                     padding: '20px 25px',
+                    paddingBottom: utils.isBrowserExtensionOptions() ? 0 : undefined,
                 }}
                 onFinish={onSubmit}
                 initialValues={values}
@@ -1566,9 +1794,68 @@ export function InnerSettings({ onSave, showFooter = false }: IInnerSettingsProp
                         <FormItem name='i18n' label={t('i18n')}>
                             <Ii18nSelector onBlur={onBlur} />
                         </FormItem>
-                        <FormItem name='provider' label={t('Default service provider')} required>
-                            <ProviderSelector />
+                        <FormItem
+                            name='provider'
+                            label={
+                                <div
+                                    style={{
+                                        display: 'flex',
+                                        flexDirection: 'row',
+                                        alignItems: 'center',
+                                        gap: 10,
+                                    }}
+                                >
+                                    {t('Default service provider')}
+                                    {openaiAPIKeyPromotion !== undefined && !promotionShowed && (
+                                        <div
+                                            style={{
+                                                width: '0.45rem',
+                                                height: '0.45rem',
+                                                borderRadius: '50%',
+                                                backgroundColor: theme.colors.warning300,
+                                            }}
+                                        />
+                                    )}
+                                </div>
+                            }
+                            required
+                        >
+                            <ProviderSelector hasPromotion={openaiAPIKeyPromotion !== undefined && !promotionShowed} />
                         </FormItem>
+                        <div
+                            style={{
+                                display: values.provider === 'Gemini' ? 'block' : 'none',
+                            }}
+                        >
+                            <FormItem
+                                name='geminiAPIModel'
+                                label={t('API Model')}
+                                required={values.provider === 'Gemini'}
+                            >
+                                <APIModelSelector provider='Gemini' currentProvider={values.provider} onBlur={onBlur} />
+                            </FormItem>
+                            <FormItem
+                                required={values.provider === 'Gemini'}
+                                name='geminiAPIKey'
+                                label='Gemini API Key'
+                                caption={
+                                    <div>
+                                        {t('Go to the')}{' '}
+                                        <a
+                                            target='_blank'
+                                            href='https://makersuite.google.com/app/apikey'
+                                            rel='noreferrer'
+                                            style={linkStyle}
+                                        >
+                                            Google AI Studio
+                                        </a>{' '}
+                                        {t('to get your API Key.')}
+                                    </div>
+                                }
+                            >
+                                <Input autoFocus type='password' size='compact' onBlur={onBlur} />
+                            </FormItem>
+                        </div>
                         <div
                             style={{
                                 display: values.provider === 'OpenAI' ? 'block' : 'none',
@@ -1824,6 +2111,9 @@ export function InnerSettings({ onSave, showFooter = false }: IInnerSettingsProp
                         <FormItem name='defaultTargetLanguage' label={t('Default target language')}>
                             <LanguageSelector onBlur={onBlur} />
                         </FormItem>
+                        <FormItem name='languageDetectionEngine' label={t('Language detection engine')}>
+                            <LanguageDetectionEngineSelector onBlur={onBlur} />
+                        </FormItem>
                         <FormItem name='themeType' label={t('Theme')}>
                             <ThemeTypeSelector onBlur={onBlur} />
                         </FormItem>
@@ -1871,17 +2161,17 @@ export function InnerSettings({ onSave, showFooter = false }: IInnerSettingsProp
                         <FormItem name='autoTranslate' label={t('Auto Translate')}>
                             <AutoTranslateCheckbox onBlur={onBlur} />
                         </FormItem>
-                        <FormItem name='restorePreviousPosition' label={t('Restore Previous Position')}>
+                        <FormItem
+                            style={{
+                                display: isDesktopApp ? 'block' : 'none',
+                            }}
+                            name='restorePreviousPosition'
+                            label={t('Fixed Position')}
+                        >
                             <RestorePreviousPositionCheckbox onBlur={onBlur} />
                         </FormItem>
                         <FormItem name='selectInputElementsText' label={t('Word selection in input')}>
                             <SelectInputElementsCheckbox onBlur={onBlur} />
-                        </FormItem>
-                        <FormItem
-                            name='readSelectedWordsFromInputElementsText'
-                            label={t('Read the selected words in input')}
-                        >
-                            <ReadSelectedWordsFromInputElementsCheckbox onBlur={onBlur} />
                         </FormItem>
                         {isTauri && (
                             <FormItem name='runAtStartup' label={t('Run at startup')}>
@@ -1890,7 +2180,7 @@ export function InnerSettings({ onSave, showFooter = false }: IInnerSettingsProp
                         )}
                         <FormItem
                             style={{
-                                display: isMacOS ? 'block' : 'none',
+                                display: isDesktopApp && isMacOS ? 'block' : 'none',
                             }}
                             name='hideTheIconInTheDock'
                             label={t('Hide the icon in the Dock bar')}
@@ -1921,6 +2211,12 @@ export function InnerSettings({ onSave, showFooter = false }: IInnerSettingsProp
                             display: activeTab === 1 ? 'block' : 'none',
                         }}
                     >
+                        <FormItem
+                            name='readSelectedWordsFromInputElementsText'
+                            label={t('Read the selected words in input')}
+                        >
+                            <ReadSelectedWordsFromInputElementsCheckbox onBlur={onBlur} />
+                        </FormItem>
                         <FormItem name='tts' label={t('TTS')}>
                             <TTSVoicesSettings onBlur={onBlur} />
                         </FormItem>
@@ -1975,7 +2271,7 @@ export function InnerSettings({ onSave, showFooter = false }: IInnerSettingsProp
                         </FormItem>
                         <FormItem
                             style={{
-                                display: isDesktopApp && isMacOS ? 'block' : 'none',
+                                display: isDesktopApp ? 'block' : 'none',
                             }}
                             name='ocrHotkey'
                             label={t('OCR Hotkey')}
@@ -1986,13 +2282,14 @@ export function InnerSettings({ onSave, showFooter = false }: IInnerSettingsProp
                 </div>
                 <div
                     style={{
-                        position: 'fixed',
+                        position: utils.isBrowserExtensionOptions() ? 'sticky' : 'fixed',
                         bottom: '7px',
                         right: '25px',
+                        paddingBottom: utils.isBrowserExtensionOptions() ? '10px' : undefined,
                         display: 'flex',
                         alignItems: 'center',
                         flexDirection: 'row',
-                        zIndex: '999',
+                        zIndex: 1000,
                         gap: 10,
                     }}
                 >

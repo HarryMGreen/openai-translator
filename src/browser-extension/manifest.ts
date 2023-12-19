@@ -60,6 +60,11 @@ export function getManifest(browser: 'firefox' | 'chromium') {
             'https://*.google-analytics.com/',
             'https://*.minimax.chat/',
             'https://*.githubusercontent.com/',
+            'https://*.baidu.com/',
+            'https://api-edge.cognitive.microsofttranslator.com/',
+            'https://*.microsoft.com/',
+            'https://*.google.com/',
+            'https://*.googleapis.com/',
         ],
     }
 

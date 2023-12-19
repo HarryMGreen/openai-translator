@@ -16,13 +16,22 @@ import { StatefulTooltip } from 'baseui-sd/tooltip'
 import { detectLang, getLangConfig, sourceLanguages, targetLanguages, LangCode } from '../lang'
 import { translate, TranslateMode } from '../translate'
 import { Select, Value, Option } from 'baseui-sd/select'
-import { RxEraser, RxReload, RxSpeakerLoud, RxStop } from 'react-icons/rx'
+import { RxEraser, RxReload, RxStop } from 'react-icons/rx'
 import { LuStars, LuStarOff } from 'react-icons/lu'
 import { clsx } from 'clsx'
 import { Button } from 'baseui-sd/button'
 import { ErrorBoundary } from 'react-error-boundary'
 import { ErrorFallback } from '../components/ErrorFallback'
-import { defaultAPIURL, exportToCsv, isDesktopApp, isTauri, getAssetUrl, isUserscript, setSettings } from '../utils'
+import {
+    defaultAPIURL,
+    exportToCsv,
+    isDesktopApp,
+    isTauri,
+    getAssetUrl,
+    isUserscript,
+    setSettings,
+    isBrowserExtensionContentScript,
+} from '../utils'
 import { InnerSettings } from './Settings'
 import { containerID, popupCardInnerContainerId } from '../../browser-extension/content_script/consts'
 import Dropzone from 'react-dropzone'
@@ -32,13 +41,11 @@ import { FcIdea } from 'react-icons/fc'
 import rocket from '../assets/images/rocket.gif'
 import partyPopper from '../assets/images/party-popper.gif'
 import { listen, Event } from '@tauri-apps/api/event'
-import SpeakerMotion from '../components/SpeakerMotion'
 import IpLocationNotification from '../components/IpLocationNotification'
 import { HighlightInTextarea } from '../highlight-in-textarea'
 import { LRUCache } from 'lru-cache'
 import { ISettings, IThemedStyleProps } from '../types'
 import { useTheme } from '../hooks/useTheme'
-import { speak } from '../tts'
 import { Tooltip } from './Tooltip'
 import { useSettings } from '../hooks/useSettings'
 import Vocabulary from './Vocabulary'
@@ -72,6 +79,7 @@ import { useTranslatorStore } from '../store'
 import useSWR from 'swr'
 import { IPromotionResponse, fetchPromotions, getPromotionItem } from '../services/promotion'
 import { usePromotionShowed } from '../hooks/usePromotionShowed'
+import { SpeakerIcon } from './SpeakerIcon'
 
 const cache = new LRUCache({
     max: 500,
@@ -102,6 +110,7 @@ const useStyles = createUseStyles({
         boxSizing: 'border-box',
     },
     'footer': (props: IThemedStyleProps) => ({
+        boxSizing: 'border-box',
         color: props.theme.colors.contentSecondary,
         position: 'fixed',
         width: '100%',
@@ -723,7 +732,6 @@ function InnerTranslator(props: IInnerTranslatorProps) {
     const styles = useStyles({ theme, themeType, isDesktopApp: isDesktopApp(), showLogo })
     const [isLoading, setIsLoading] = useState(false)
     const [editableText, setEditableText] = useState('')
-    const [isSpeakingEditableText, setIsSpeakingEditableText] = useState(false)
     const [tokenCount, setTokenCount] = useState(0)
     const [translatedText, setTranslatedText] = useState('')
     const [translatedLines, setTranslatedLines] = useState<string[]>([])
@@ -804,6 +812,7 @@ function InnerTranslator(props: IInnerTranslatorProps) {
                 })
                 return action
             }
+            setEditableText(externalOriginalText)
             getTranslateDeps(externalOriginalText, action).then((v) => {
                 setTranslateDeps(v)
             })
@@ -849,8 +858,6 @@ function InnerTranslator(props: IInnerTranslatorProps) {
     useEffect(() => {
         setTranslatedLines(translatedText.split('\n'))
     }, [translatedText])
-    const [isSpeakingTranslatedText, setIsSpeakingTranslatedText] = useState(false)
-    const isSpeakingSelectedWordsFromInputElements = useRef(false)
     const [errorMessage, setErrorMessage] = useState('')
     const startLoading = useCallback(() => {
         setIsLoading(true)
@@ -873,7 +880,7 @@ function InnerTranslator(props: IInnerTranslatorProps) {
                 action: activateAction,
             })
         })
-    }, [activateAction, getTranslateDeps, props.uuid])
+    }, [activateAction, getTranslateDeps])
 
     const [actionStr, setActionStr] = useState('')
 
@@ -1017,7 +1024,7 @@ function InnerTranslator(props: IInnerTranslatorProps) {
                         setActionStr((actionStr_) => {
                             let errMsg = `${actionStr_} failed, finish_reason: ${reason}`
                             if (reason === 'content_filter') {
-                                errMsg = `很抱歉！由于您使用的是中国的 LLM，所以会有敏感词限制，很不幸这个请求已经触发了敏感词，请您接受这个结果。`
+                                errMsg = `很抱歉！由于您使用的 LLM 有敏感词限制，很不幸这个请求已经触发了敏感词，请您接受这个结果。`
                             }
                             setErrorMessage(errMsg)
                             return 'Error'
@@ -1046,6 +1053,7 @@ function InnerTranslator(props: IInnerTranslatorProps) {
             }
             let isStopped = false
             try {
+                // console.debug('translate', sourceLang, targetLang, text)
                 await translate({
                     action,
                     signal,
@@ -1281,71 +1289,15 @@ function InnerTranslator(props: IInnerTranslatorProps) {
         }
     }
 
-    const editableStopSpeakRef = useRef<() => void>(() => null)
-    const translatedStopSpeakRef = useRef<() => void>(() => null)
-    const selectedWordsFromInputElementsStopSpeakRef = useRef<() => void>(() => null)
-    useEffect(() => {
-        return () => {
-            editableStopSpeakRef.current()
-            translatedStopSpeakRef.current()
-            selectedWordsFromInputElementsStopSpeakRef.current()
-        }
-    }, [])
-    const handleEditSpeakAction = async () => {
-        if (isSpeakingEditableText) {
-            editableStopSpeakRef.current()
-            setIsSpeakingEditableText(false)
-            return
-        }
-        setIsSpeakingEditableText(true)
-        const { stopSpeak } = await speak({
-            text: editableText,
-            lang: sourceLang,
-            onFinish: () => setIsSpeakingEditableText(false),
-        })
-        editableStopSpeakRef.current = stopSpeak
-    }
-
-    const handleTranslatedSpeakAction = async () => {
-        if (isSpeakingTranslatedText) {
-            translatedStopSpeakRef.current()
-            setIsSpeakingTranslatedText(false)
-            return
-        }
-        setIsSpeakingTranslatedText(true)
-        const { stopSpeak } = await speak({
-            text: translatedText,
-            lang: targetLang,
-            onFinish: () => setIsSpeakingTranslatedText(false),
-        })
-        translatedStopSpeakRef.current = stopSpeak
-    }
-
-    const handleReadSelectedWordsFromInputElementsAction = useCallback(async () => {
-        if (isSpeakingSelectedWordsFromInputElements.current) {
-            selectedWordsFromInputElementsStopSpeakRef.current()
-            isSpeakingSelectedWordsFromInputElements.current = false
-            return
-        }
-        isSpeakingSelectedWordsFromInputElements.current = true
-        const { stopSpeak } = await speak({
-            text: selectedWord,
-            lang: sourceLang,
-            onFinish: () => {
-                isSpeakingSelectedWordsFromInputElements.current = false
-            },
-        })
-        selectedWordsFromInputElementsStopSpeakRef.current = stopSpeak
-    }, [selectedWord, sourceLang])
+    const editableTextSpeakingIconRef = useRef<HTMLDivElement>(null)
 
     useEffect(() => {
         if (selectedWord === '' || settings?.readSelectedWordsFromInputElementsText === false) {
             return
         }
-        handleReadSelectedWordsFromInputElementsAction()
-            .then()
-            .catch((reason) => console.error('read selected words error: ', reason))
-    }, [selectedWord, handleReadSelectedWordsFromInputElementsAction, settings?.readSelectedWordsFromInputElementsText])
+        console.debug('speak selected word', selectedWord)
+        editableTextSpeakingIconRef.current?.click()
+    }, [selectedWord, settings?.readSelectedWordsFromInputElementsText])
 
     const enableVocabulary = !isUserscript()
 
@@ -1394,7 +1346,7 @@ function InnerTranslator(props: IInnerTranslatorProps) {
         }
     }, [showSettings])
 
-    const showSubmitButton = useMemo(() => {
+    const showSubmitButton = () => {
         if (activateAction?.id === undefined) {
             return false
         }
@@ -1412,7 +1364,7 @@ function InnerTranslator(props: IInnerTranslatorProps) {
         }
 
         return false
-    }, [activateAction?.id, editableText, translateDeps.action?.id, translateDeps.text])
+    }
 
     const handleSubmit = useCallback(
         (e: React.SyntheticEvent<HTMLButtonElement> | React.KeyboardEvent<HTMLTextAreaElement>) => {
@@ -1423,13 +1375,14 @@ function InnerTranslator(props: IInnerTranslatorProps) {
                 action = actions?.find((action) => action.mode === 'translate')
                 setActivateAction(action)
             }
+            const text = editorRef.current?.value ?? ''
             if (action) {
-                getTranslateDeps(editableText, action).then((v) => {
+                getTranslateDeps(text, action).then((v) => {
                     setTranslateDeps(v)
                 })
             }
         },
-        [actions, activateAction, editableText, getTranslateDeps]
+        [actions, activateAction, getTranslateDeps]
     )
 
     const { data: promotions, mutate: refetchPromotions } = useSWR<IPromotionResponse>(
@@ -1541,9 +1494,12 @@ function InnerTranslator(props: IInnerTranslatorProps) {
                                     setTranslateDeps((v) => ({
                                         ...v,
                                         text: translatedText,
+                                        sourceLang: targetLang ?? 'en',
+                                        targetLang: sourceLang,
                                     }))
                                     setSourceLang(targetLang ?? 'en')
                                     setTargetLang(sourceLang)
+                                    editorRef.current?.focus()
                                 }}
                             >
                                 <Tooltip content='Exchange' placement='top'>
@@ -1654,27 +1610,7 @@ function InnerTranslator(props: IInnerTranslatorProps) {
                                                 if (actionID === '__manager__') {
                                                     if (isTauri()) {
                                                         const { invoke } = await import('@tauri-apps/api/primitives')
-                                                        if (!navigator.userAgent.includes('Windows')) {
-                                                            await invoke('show_action_manager_window')
-                                                        } else {
-                                                            const { LogicalSize, Window: WebviewWindow } = await import(
-                                                                '@tauri-apps/api/window'
-                                                            )
-                                                            const windowLabel = 'action_manager'
-                                                            let window = WebviewWindow.getByLabel(windowLabel)
-                                                            if (!window) {
-                                                                window = new WebviewWindow(windowLabel, {
-                                                                    url: 'src/tauri/action_manager.html',
-                                                                    decorations: false,
-                                                                    visible: true,
-                                                                    focus: true,
-                                                                })
-                                                            }
-                                                            await window.setDecorations(false)
-                                                            await window.setSize(new LogicalSize(600, 770))
-                                                            await window.center()
-                                                            await window.show()
-                                                        }
+                                                        await invoke('show_action_manager_window')
                                                     } else {
                                                         setShowActionManager(true)
                                                     }
@@ -1849,8 +1785,8 @@ function InnerTranslator(props: IInnerTranslatorProps) {
                                                 display: 'flex',
                                                 flexDirection: 'row',
                                                 alignItems: 'center',
-                                                paddingTop: showSubmitButton ? 8 : 0,
-                                                height: showSubmitButton ? 28 : 0,
+                                                paddingTop: showSubmitButton() ? 8 : 0,
+                                                height: showSubmitButton() ? 28 : 0,
                                                 transition: 'all 0.3s linear',
                                                 overflow: 'hidden',
                                             }}
@@ -1967,12 +1903,20 @@ function InnerTranslator(props: IInnerTranslatorProps) {
                                             </Tooltip>
                                         )}
                                         <Tooltip content={t('Speak')} placement='bottom'>
-                                            <div className={styles.actionButton} onClick={handleEditSpeakAction}>
-                                                {isSpeakingEditableText ? (
-                                                    <SpeakerMotion />
-                                                ) : (
-                                                    <RxSpeakerLoud size={15} />
-                                                )}
+                                            <div className={styles.actionButton}>
+                                                <SpeakerIcon
+                                                    size={15}
+                                                    divRef={editableTextSpeakingIconRef}
+                                                    provider={settings.tts?.provider}
+                                                    text={selectedWord ? selectedWord : editableText}
+                                                    lang={sourceLang}
+                                                    voice={
+                                                        settings.tts?.voices?.find((item) => item.lang === sourceLang)
+                                                            ?.voice
+                                                    }
+                                                    rate={settings.tts?.rate}
+                                                    volume={settings.tts?.volume}
+                                                />
                                             </div>
                                         </Tooltip>
                                         <Tooltip content={t('Copy to clipboard')} placement='bottom'>
@@ -2120,15 +2064,20 @@ function InnerTranslator(props: IInnerTranslatorProps) {
                                                     </Tooltip>
                                                 )}
                                                 <Tooltip content={t('Speak')} placement='bottom'>
-                                                    <div
-                                                        className={styles.actionButton}
-                                                        onClick={handleTranslatedSpeakAction}
-                                                    >
-                                                        {isSpeakingTranslatedText ? (
-                                                            <SpeakerMotion />
-                                                        ) : (
-                                                            <RxSpeakerLoud size={15} />
-                                                        )}
+                                                    <div className={styles.actionButton}>
+                                                        <SpeakerIcon
+                                                            size={15}
+                                                            provider={settings.tts?.provider}
+                                                            text={translatedText}
+                                                            lang={targetLang ?? 'en'}
+                                                            voice={
+                                                                settings.tts?.voices?.find(
+                                                                    (item) => item.lang === targetLang
+                                                                )?.voice
+                                                            }
+                                                            rate={settings.tts?.rate}
+                                                            volume={settings.tts?.volume}
+                                                        />
                                                     </div>
                                                 </Tooltip>
                                                 {isWordMode && (
@@ -2184,10 +2133,22 @@ function InnerTranslator(props: IInnerTranslatorProps) {
                         <Button
                             size='mini'
                             kind='tertiary'
-                            onClick={(e) => {
+                            overrides={{
+                                Root: {
+                                    style: {
+                                        zIndex: 1003,
+                                    },
+                                },
+                            }}
+                            onClick={async (e) => {
                                 e.stopPropagation()
                                 e.preventDefault()
-                                setShowSettings((s) => !s)
+                                if (isBrowserExtensionContentScript()) {
+                                    const browser = (await import('webextension-polyfill')).default
+                                    await browser.runtime.sendMessage({ type: 'openOptionsPage' })
+                                } else {
+                                    setShowSettings((s) => !s)
+                                }
                             }}
                         >
                             <div
@@ -2207,7 +2168,12 @@ function InnerTranslator(props: IInnerTranslatorProps) {
                                             position: 'relative',
                                         }}
                                     >
-                                        <IoSettingsOutline size={15} />
+                                        <IoSettingsOutline
+                                            style={{
+                                                display: 'block',
+                                            }}
+                                            size={15}
+                                        />
                                         {promotion && !promotionShowed && (
                                             <div
                                                 style={{

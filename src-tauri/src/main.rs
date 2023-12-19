@@ -3,40 +3,42 @@
     windows_subsystem = "windows"
 )]
 
-mod fetch;
 mod config;
+mod fetch;
 mod lang;
 mod ocr;
-mod writing;
 mod tray;
 mod utils;
 mod windows;
+mod writing;
 
 use config::get_config;
 use parking_lot::Mutex;
-use tauri_plugin_updater::UpdaterExt;
-use windows::get_main_window;
+use serde_json::json;
 use std::env;
 use std::sync::atomic::{AtomicBool, Ordering};
 use sysinfo::{CpuExt, System, SystemExt};
+use tauri_plugin_aptabase::EventTracker;
 use tauri_plugin_autostart::MacosLauncher;
+use tauri_plugin_updater::UpdaterExt;
+use windows::get_translator_window;
 
 use crate::config::{clear_config_cache, get_config_content};
-use crate::lang::detect_lang;
 use crate::fetch::fetch_stream;
-use crate::ocr::ocr_command;
-use crate::writing::{writing_command, write_to_input, finish_writing};
+use crate::lang::detect_lang;
+use crate::ocr::{cut_image, finish_ocr, ocr_command, screenshot};
 use crate::windows::{
-    get_main_window_always_on_top, show_action_manager_window,
-    show_main_window_with_selected_text_command, MAIN_WIN_NAME,
-    show_updater_window, close_updater_window, show_main_window_command,
+    get_translator_window_always_on_top, show_action_manager_window,
+    show_translator_window_command, show_translator_window_with_selected_text_command,
+    show_updater_window, TRANSLATOR_WIN_NAME,
 };
+use crate::writing::{finish_writing, write_to_input, writing_command};
 
 use mouce::Mouse;
 use once_cell::sync::OnceCell;
-use tauri_plugin_notification::NotificationExt;
 use tauri::{AppHandle, LogicalPosition, LogicalSize};
 use tauri::{Manager, PhysicalPosition, PhysicalSize};
+use tauri_plugin_notification::NotificationExt;
 use tiny_http::{Response as HttpResponse, Server};
 
 pub static APP_HANDLE: OnceCell<AppHandle> = OnceCell::new();
@@ -88,7 +90,7 @@ fn launch_ipc_server(server: &Server) {
         let mut selected_text = String::new();
         req.as_reader().read_to_string(&mut selected_text).unwrap();
         utils::send_text(selected_text);
-        let window = windows::show_main_window(false, true, false);
+        let window = windows::show_translator_window(false, true, false);
         window.set_focus().unwrap();
         utils::show();
         let response = HttpResponse::from_string("ok");
@@ -96,9 +98,7 @@ fn launch_ipc_server(server: &Server) {
     }
 }
 
-fn main() {
-    let silently = env::args().any(|arg| arg == "--silently");
-
+fn bind_mouse_hook() {
     let mut mouse_manager = Mouse::new();
 
     if !query_accessibility_permissions() {
@@ -227,7 +227,7 @@ fn main() {
                     }
                     std::thread::spawn(move || {
                         let _lock = RELEASE_THREAD_ID.lock();
-                        let selected_text = utils::get_selected_text().unwrap();
+                        let selected_text = utils::get_selected_text().unwrap_or_default();
                         if !selected_text.is_empty() {
                             {
                                 *SELECTED_TEXT.lock() = selected_text;
@@ -242,7 +242,7 @@ fn main() {
                     windows::close_thumb();
                     let selected_text = (*SELECTED_TEXT.lock()).to_string();
                     if !selected_text.is_empty() {
-                        let window = windows::show_main_window(false, true, false);
+                        let window = windows::show_translator_window(false, true, false);
                         utils::send_text(selected_text);
                         if cfg!(target_os = "windows") {
                             window.set_always_on_top(true).unwrap();
@@ -270,6 +270,10 @@ fn main() {
             println!("Error: {}", e);
         }
     }
+}
+
+fn main() {
+    let silently = env::args().any(|arg| arg == "--silently");
 
     let mut sys = System::new();
     sys.refresh_cpu(); // Refreshing CPU information.
@@ -279,6 +283,23 @@ fn main() {
     }
 
     let mut app = tauri::Builder::default()
+        .plugin(
+            tauri_plugin_aptabase::Builder::new("A-US-9856842764")
+                .with_panic_hook(Box::new(|client, info, msg| {
+                    let location = info
+                        .location()
+                        .map(|loc| format!("{}:{}:{}", loc.file(), loc.line(), loc.column()))
+                        .unwrap_or_else(|| "".to_string());
+
+                    client.track_event(
+                        "panic",
+                        Some(json!({
+                            "info": format!("{} ({})", msg, location),
+                        })),
+                    );
+                }))
+                .build(),
+        )
         .plugin(tauri_plugin_http::init())
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_fs::init())
@@ -304,16 +325,16 @@ fn main() {
             app_handle.plugin(tauri_plugin_global_shortcut::Builder::new().build())?;
             app_handle.plugin(tauri_plugin_updater::Builder::new().build())?;
             if silently {
-                let window = get_main_window(false, false, false);
+                let window = get_translator_window(false, false, false);
                 window.unminimize().unwrap();
                 window.hide().unwrap();
             } else {
-                let window = get_main_window(false, false, false);
+                let window = get_translator_window(false, false, false);
                 window.set_focus().unwrap();
                 window.show().unwrap();
             }
             if !query_accessibility_permissions() {
-                let window = app.get_window(MAIN_WIN_NAME).unwrap();
+                let window = app.get_window(TRANSLATOR_WIN_NAME).unwrap();
                 window.minimize().unwrap();
                 app.notification()
                     .builder()
@@ -348,7 +369,7 @@ fn main() {
 
                     match updater.check().await {
                         Ok(Some(update)) => {
-                            *UPDATE_RESULT.lock() = Some(Some(UpdateResult{
+                            *UPDATE_RESULT.lock() = Some(Some(UpdateResult {
                                 version: update.version,
                                 current_version: update.current_version,
                                 body: update.body,
@@ -376,24 +397,25 @@ fn main() {
             get_update_result,
             get_config_content,
             clear_config_cache,
-            show_main_window_command,
-            show_main_window_with_selected_text_command,
+            show_translator_window_command,
+            show_translator_window_with_selected_text_command,
             show_action_manager_window,
-            close_updater_window,
-            get_main_window_always_on_top,
+            get_translator_window_always_on_top,
             ocr_command,
             fetch_stream,
             writing_command,
             write_to_input,
             finish_writing,
             detect_lang,
+            cut_image,
+            finish_ocr,
+            screenshot,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application");
 
     #[cfg(target_os = "macos")]
     {
-
         let config = config::get_config_by_app(app.handle()).unwrap();
         if config.hide_the_icon_in_the_dock.unwrap_or(false) {
             app.set_activation_policy(tauri::ActivationPolicy::Accessory);
@@ -402,63 +424,71 @@ fn main() {
         }
     }
 
-    app.run(|app, event| {
-        match event {
-            tauri::RunEvent::Ready => {
-                let handle = app.clone();
-                tauri::async_runtime::spawn(async move {
-                    let mut builder = handle.updater_builder();
-                    let updater = builder.build().unwrap();
-
-                    match updater.check().await {
-                        Ok(Some(update)) => {
-                            *UPDATE_RESULT.lock() = Some(Some(UpdateResult{
-                                version: update.version,
-                                current_version: update.current_version,
-                                body: update.body,
-                            }));
-                            tray::create_tray(&handle).unwrap();
-                            let config = get_config().unwrap();
-                            if config.automatic_check_for_updates.is_none() || config.automatic_check_for_updates.is_some_and(|x| x == true) {
-                                std::thread::sleep(std::time::Duration::from_secs(3));
-                                show_updater_window();
-                            }
-                        }
-                        Ok(None) => {
-                            if UPDATE_RESULT.lock().is_some() {
-                                if let Some(Some(_)) = *UPDATE_RESULT.lock() {
-                                    *UPDATE_RESULT.lock() = Some(None);
-                                    tray::create_tray(&handle).unwrap();
-                                }
-                            } else {
-                                *UPDATE_RESULT.lock() = Some(None);
-                            }
-                        }
-                        Err(_) => {}
-                    }
-                });
-            }
-            tauri::RunEvent::WindowEvent {
-                label,
-                event: tauri::WindowEvent::CloseRequested { api, .. },
-                ..
-            } => {
-                if label != MAIN_WIN_NAME {
-                    return;
-                }
-
-                #[cfg(target_os = "macos")]
-                {
-                    tauri::AppHandle::hide(&app.app_handle()).unwrap();
-                }
-                #[cfg(target_os = "windows")]
-                {
-                    let window = app.get_window(label.as_str()).unwrap();
-                    window.hide().unwrap();
-                }
-                api.prevent_close();
-            }
-            _ => {}
+    app.run(|app, event| match event {
+        tauri::RunEvent::Exit { .. } => {
+            app.track_event("app_exited", None);
+            app.flush_events_blocking();
         }
+        tauri::RunEvent::Ready => {
+            app.track_event("app_started", None);
+            bind_mouse_hook();
+            let handle = app.clone();
+            tauri::async_runtime::spawn(async move {
+                let mut builder = handle.updater_builder();
+                let updater = builder.build().unwrap();
+
+                match updater.check().await {
+                    Ok(Some(update)) => {
+                        *UPDATE_RESULT.lock() = Some(Some(UpdateResult {
+                            version: update.version,
+                            current_version: update.current_version,
+                            body: update.body,
+                        }));
+                        tray::create_tray(&handle).unwrap();
+                        let config = get_config().unwrap();
+                        if config.automatic_check_for_updates.is_none()
+                            || config
+                                .automatic_check_for_updates
+                                .is_some_and(|x| x == true)
+                        {
+                            std::thread::sleep(std::time::Duration::from_secs(3));
+                            show_updater_window();
+                        }
+                    }
+                    Ok(None) => {
+                        if UPDATE_RESULT.lock().is_some() {
+                            if let Some(Some(_)) = *UPDATE_RESULT.lock() {
+                                *UPDATE_RESULT.lock() = Some(None);
+                                tray::create_tray(&handle).unwrap();
+                            }
+                        } else {
+                            *UPDATE_RESULT.lock() = Some(None);
+                        }
+                    }
+                    Err(_) => {}
+                }
+            });
+        }
+        tauri::RunEvent::WindowEvent {
+            label,
+            event: tauri::WindowEvent::CloseRequested { api, .. },
+            ..
+        } => {
+            if label != TRANSLATOR_WIN_NAME {
+                return;
+            }
+
+            #[cfg(target_os = "macos")]
+            {
+                tauri::AppHandle::hide(&app.app_handle()).unwrap();
+            }
+            #[cfg(target_os = "windows")]
+            {
+                let window = app.get_window(label.as_str()).unwrap();
+                window.hide().unwrap();
+            }
+            api.prevent_close();
+        }
+        _ => {}
     });
 }

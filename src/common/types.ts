@@ -2,6 +2,7 @@ import { Theme } from 'baseui-sd/theme'
 import { TranslateMode } from './translate'
 import { TTSProvider } from './tts/types'
 import { Provider } from './engines'
+import { LangCode } from './lang'
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 interface ISync {
@@ -44,6 +45,8 @@ export interface IThemedStyleProps {
     showLogo?: boolean
 }
 
+export type LanguageDetectionEngine = 'google' | 'baidu' | 'bing' | 'local'
+
 export interface ISettings {
     automaticCheckForUpdates: boolean
     apiKeys: string
@@ -58,6 +61,8 @@ export interface ISettings {
     azureAPIModel: string
     miniMaxGroupID: string
     miniMaxAPIKey: string
+    geminiAPIKey: string
+    geminiAPIModel: string
     moonshotAPIKey: string
     moonshotAPIModel: string
     autoTranslate: boolean
@@ -74,7 +79,7 @@ export interface ISettings {
     i18n?: string
     tts?: {
         voices?: {
-            lang: string
+            lang: LangCode
             voice: string
         }[]
         provider?: TTSProvider
@@ -90,4 +95,5 @@ export interface ISettings {
     pinned?: boolean
     autoCollect?: boolean
     hideTheIconInTheDock?: boolean
+    languageDetectionEngine?: LanguageDetectionEngine
 }

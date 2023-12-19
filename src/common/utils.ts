@@ -51,6 +51,8 @@ const settingKeys: Record<keyof ISettings, number> = {
     miniMaxAPIKey: 1,
     moonshotAPIKey: 1,
     moonshotAPIModel: 1,
+    geminiAPIKey: 1,
+    geminiAPIModel: 1,
     autoTranslate: 1,
     defaultTranslateMode: 1,
     defaultTargetLanguage: 1,
@@ -73,6 +75,7 @@ const settingKeys: Record<keyof ISettings, number> = {
     pinned: 1,
     autoCollect: 1,
     hideTheIconInTheDock: 1,
+    languageDetectionEngine: 1,
 }
 
 export async function getSettings(): Promise<ISettings> {
@@ -150,6 +153,9 @@ export async function getSettings(): Promise<ISettings> {
     if (settings.automaticCheckForUpdates === undefined || settings.automaticCheckForUpdates === null) {
         settings.automaticCheckForUpdates = true
     }
+    if (!settings.languageDetectionEngine) {
+        settings.languageDetectionEngine = 'baidu'
+    }
     return settings
 }
 
@@ -180,6 +186,20 @@ export const isTauri = () => {
         return false
     }
     return window['__TAURI__' as any] !== undefined
+}
+
+export const isBrowserExtensionOptions = () => {
+    if (typeof window === 'undefined') {
+        return false
+    }
+    return window['__IS_OT_BROWSER_EXTENSION_OPTIONS__' as any] !== undefined
+}
+
+export const isBrowserExtensionContentScript = () => {
+    if (typeof window === 'undefined') {
+        return false
+    }
+    return window['__IS_OT_BROWSER_EXTENSION_CONTENT_SCRIPT__' as any] !== undefined
 }
 
 export const isDesktopApp = () => {
@@ -263,12 +283,64 @@ interface FetchSSEOptions extends RequestInit {
     onError(error: any): void
     onStatusCode?: (statusCode: number) => void
     fetcher?: (input: string, options: RequestInit) => Promise<Response>
+    useJSONParser?: boolean
+}
+
+const responseLineRE = /^(\[|,)/
+
+function tryParse(currentText: string): {
+    parsedResponse: any
+} {
+    const match = currentText.match(responseLineRE)
+    if (!match) {
+        return {
+            parsedResponse: null,
+        }
+    }
+
+    let jsonText: string
+    if (match[1] === '[') {
+        jsonText = currentText + ']'
+    } else if (currentText.trimEnd().endsWith(']')) {
+        jsonText = '[' + currentText.slice(1)
+    } else {
+        jsonText = '[' + currentText.slice(1) + ']'
+    }
+
+    try {
+        const parsedResponse = JSON.parse(jsonText)
+        return {
+            parsedResponse,
+        }
+    } catch (e) {
+        throw new Error(`Error parsing JSON response: "${jsonText}"`)
+    }
 }
 
 export async function fetchSSE(input: string, options: FetchSSEOptions) {
-    const { onMessage, onError, onStatusCode, fetcher = getUniversalFetch(), ...fetchOptions } = options
+    const {
+        onMessage,
+        onError,
+        onStatusCode,
+        useJSONParser = false,
+        fetcher = getUniversalFetch(),
+        ...fetchOptions
+    } = options
 
-    const parser = createParser(async (event) => {
+    const jsonParser = async ({ value, done }: { value: string; done: boolean }) => {
+        if (done && !value) {
+            return
+        }
+
+        const { parsedResponse } = tryParse(value)
+        if (parsedResponse) {
+            for (const item of parsedResponse) {
+                await onMessage(JSON.stringify(item))
+            }
+        }
+    }
+
+    const sseParser = createParser(async (event) => {
         if (event.type === 'event') {
             await onMessage(event.data)
         }
@@ -282,16 +354,34 @@ export async function fetchSSE(input: string, options: FetchSSEOptions) {
                 unlisten?.()
                 emit('abort-fetch-stream', { id })
             })
-            listen('fetch-stream-chunk', (event: Event<{ id: string; data: string; done: boolean }>) => {
-                const payload = event.payload
-                if (payload.id === id) {
+            listen(
+                'fetch-stream-chunk',
+                (event: Event<{ id: string; data: string; done: boolean; status: number }>) => {
+                    const payload = event.payload
+                    if (payload.id !== id) {
+                        return
+                    }
                     if (payload.done) {
                         resolve()
                         return
                     }
-                    parser.feed(payload.data)
+                    if (payload.status !== 200) {
+                        try {
+                            const data = JSON.parse(payload.data)
+                            onError(data)
+                        } catch (e) {
+                            onError(payload.data)
+                        }
+                        resolve()
+                        return
+                    }
+                    if (useJSONParser) {
+                        jsonParser({ value: payload.data, done: payload.done })
+                    } else {
+                        sseParser.feed(payload.data)
+                    }
                 }
-            })
+            )
                 .then((cb) => {
                     unlisten = cb
                 })
@@ -329,7 +419,11 @@ export async function fetchSSE(input: string, options: FetchSSEOptions) {
                 break
             }
             const str = new TextDecoder().decode(value)
-            parser.feed(str)
+            if (useJSONParser) {
+                jsonParser({ value: str, done })
+            } else {
+                sseParser.feed(str)
+            }
         }
     } finally {
         reader.releaseLock()

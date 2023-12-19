@@ -41,6 +41,7 @@
   "to get your API Key.": "获取您的 API 密钥。",
   "to get your Group ID.": "获取您的 Group ID。",
   "Restore Previous Position": "恢复上次位置",
+  "Fixed Position": "固定位置",
   "Run at startup": "开机启动",
   "API Model": "API 模型",
   "Chars Limited": "字数超出限制",
@@ -144,5 +145,12 @@
   "Agree and continue": "同意并继续",
   "Disclaimer": "免责声明",
   "How to Use": "使用方法",
+  "Please select a language": "请选择一种语言",
+  "Please select a voice": "请选择一种声音",
+  "Language detection engine": "语种检测引擎",
+  "Google": "谷歌",
+  "Baidu": "百度",
+  "Bing": "必应",
+  "Local": "本地",
   "If you find this tool helpful, you can buy me a cup of coffee.": "如果您觉得这个工具对您有所帮助，您可以请我喝杯咖啡。"
 }

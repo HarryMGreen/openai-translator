@@ -1,9 +1,12 @@
-use std::sync::atomic::{Ordering, AtomicBool};
+use std::sync::atomic::{AtomicBool, Ordering};
 
-use crate::{ALWAYS_ON_TOP, UPDATE_RESULT};
 use crate::config::get_config;
 use crate::ocr::ocr;
-use crate::windows::{set_main_window_always_on_top, MAIN_WIN_NAME, show_settings_window, show_updater_window};
+use crate::windows::{
+    set_translator_window_always_on_top, show_settings_window, show_updater_window,
+    TRANSLATOR_WIN_NAME,
+};
+use crate::{ALWAYS_ON_TOP, UPDATE_RESULT};
 
 use tauri::{
     menu::{Menu, MenuItem},
@@ -19,9 +22,12 @@ pub fn create_tray<R: Runtime>(app: &tauri::AppHandle<R>) -> tauri::Result<()> {
     if let Some(ocr_hotkey) = config.ocr_hotkey {
         ocr_text = format!("OCR ({})", ocr_hotkey);
     }
-    let check_for_updates_i = MenuItem::with_id(app, "check_for_updates", "Check for Updates...", true, None);
+    let check_for_updates_i =
+        MenuItem::with_id(app, "check_for_updates", "Check for Updates...", true, None);
     if let Some(Some(_)) = *UPDATE_RESULT.lock() {
-        check_for_updates_i.set_text("💡 New version available!").unwrap();
+        check_for_updates_i
+            .set_text("💡 New version available!")
+            .unwrap();
     }
     let settings_i = MenuItem::with_id(app, "settings", "Settings", true, None);
     let ocr_i = MenuItem::with_id(app, "ocr", ocr_text, true, None);
@@ -62,19 +68,19 @@ pub fn create_tray<R: Runtime>(app: &tauri::AppHandle<R>) -> tauri::Result<()> {
             ocr();
         }
         "show" => {
-            let window = app.get_window(MAIN_WIN_NAME).unwrap();
+            let window = app.get_window(TRANSLATOR_WIN_NAME).unwrap();
             window.set_focus().unwrap();
             window.unminimize().unwrap();
             window.show().unwrap();
         }
         "hide" => {
-            let window = app.get_window(MAIN_WIN_NAME).unwrap();
+            let window = app.get_window(TRANSLATOR_WIN_NAME).unwrap();
             window.set_focus().unwrap();
             window.unminimize().unwrap();
             window.hide().unwrap();
         }
         "pin" => {
-            set_main_window_always_on_top();
+            set_translator_window_always_on_top();
             create_tray(app).unwrap();
         }
         "quit" => app.exit(0),
@@ -83,7 +89,7 @@ pub fn create_tray<R: Runtime>(app: &tauri::AppHandle<R>) -> tauri::Result<()> {
     tray.on_tray_icon_event(|tray, event| {
         if event.click_type == ClickType::Left {
             let app = tray.app_handle();
-            if let Some(window) = app.get_window(MAIN_WIN_NAME) {
+            if let Some(window) = app.get_window(TRANSLATOR_WIN_NAME) {
                 window.unminimize().unwrap();
                 let _ = window.show();
                 let _ = window.set_focus();
@@ -94,4 +100,3 @@ pub fn create_tray<R: Runtime>(app: &tauri::AppHandle<R>) -> tauri::Result<()> {
 
     Ok(())
 }
-

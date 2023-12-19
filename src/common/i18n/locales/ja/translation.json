@@ -41,6 +41,7 @@
   "to get your API Key.": "にアクセスして、APIキーを取得してください。",
   "to get your Group ID.": "にアクセスして、グループIDを取得してください。",
   "Restore Previous Position": "以前の位置を復元",
+  "Fixed Position": "固定位置",
   "Run at startup": "起動時に実行",
   "API Model": "API モデル",
   "Chars Limited": "文字数が制限を超えています",
@@ -144,5 +145,12 @@
   "Agree and continue": "同意して続行",
   "Disclaimer": "免責事項",
   "How to Use": "使い方",
+  "Please select a language": "言語を選択してください",
+  "Please select a voice": "声を選択してください",
+  "Language detection engine": "言語検出エンジン",
+  "Google": "Google",
+  "Baidu": "Baidu",
+  "Bing": "Bing",
+  "Local": "Local",
   "If you find this tool helpful, you can buy me a cup of coffee.": "このツールが役に立ったら、コーヒーを買ってください。"
 }

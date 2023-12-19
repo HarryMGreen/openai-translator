@@ -41,6 +41,7 @@
   "to get your API Key.": "to get your API Key.",
   "to get your Group ID.": "to get your Group ID.",
   "Restore Previous Position": "Restore Previous Position",
+  "Fixed Position": "Fixed Position",
   "Run at startup": "Run at startup",
   "API Model": "API Model",
   "Chars Limited": "The number of characters exceeds the limit",
@@ -144,5 +145,12 @@
   "Agree and continue": "Agree and continue",
   "Disclaimer": "Disclaimer",
   "How to Use": "How to Use",
+  "Please select a language": "Please select a language",
+  "Please select a voice": "Please select a voice",
+  "Language detection engine": "Language detection engine",
+  "Google": "Google",
+  "Baidu": "Baidu",
+  "Bing": "Bing",
+  "Local": "Local",
   "If you find this tool helpful, you can buy me a cup of coffee.": "If you find this tool helpful, you can buy me a cup of coffee."
 }

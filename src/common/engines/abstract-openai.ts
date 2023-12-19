@@ -30,6 +30,8 @@ export abstract class AbstractOpenAI implements IEngine {
     async getHeaders(): Promise<Record<string, string>> {
         const apiKey = await this.getAPIKey()
         return {
+            'User-Agent':
+                'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) chatall/1.29.40 Chrome/114.0.5735.134 Safari/537.36',
             'Content-Type': 'application/json',
             'Authorization': `Bearer ${apiKey}`,
         }
@@ -94,7 +96,11 @@ export abstract class AbstractOpenAI implements IEngine {
                     resp = JSON.parse(msg)
                     // eslint-disable-next-line no-empty, @typescript-eslint/no-explicit-any
                 } catch (e: any) {
-                    req.onError?.(e?.message ?? 'Cannot parse response JSON')
+                    // avoid `Unexpected token 'D', "[DONE]" is not valid JSON`
+                    if (msg.trim() !== '[DONE]') {
+                        req.onError?.(e?.message ?? 'Cannot parse response JSON')
+                    }
+
                     req.onFinished('stop')
                     finished = true
                     return

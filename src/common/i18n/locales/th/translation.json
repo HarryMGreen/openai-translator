@@ -40,6 +40,7 @@
   "to get your API Key.": "ในการรับ API Key ของคุณ",
   "to get your Group ID.": "ในการรับ Group ID ของคุณ",
   "Restore Previous Position": "กู้คืนตำแหน่งก่อนหน้า",
+  "Fixed Position": "ตำแหน่งคงที่",
   "Run at startup": "เรียกใช้เมื่อเริ่มต้น",
   "API Model": "โมเดล API",
   "Chars Limited": "จำนวนอักขระเกินขีดจำกัด",
@@ -143,5 +144,12 @@
   "Agree and continue": "เห็นด้วยและดำเนินการต่อ",
   "Disclaimer": "คำปฏิเสธความรับผิดชอบ",
   "How to Use": "วิธีการใช้",
+  "Please select a language": "โปรดเลือกภาษา",
+  "Please select a voice": "โปรดเลือกเสียง",
+  "Language detection engine": "เครื่องมือตรวจสอบภาษา",
+  "Google": "Google",
+  "Baidu": "Baidu",
+  "Bing": "Bing",
+  "Local": "Local",
   "If you find this tool helpful, you can buy me a cup of coffee.": "ถ้าคุณพบว่าเครื่องมือนี้เป็นประโยชน์ คุณสามารถซื้อกาแฟให้ฉันได้"
 }
