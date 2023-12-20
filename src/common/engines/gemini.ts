@@ -4,10 +4,6 @@ import { IEngine, IMessageRequest, IModel } from './interfaces'
 
 const SAFETY_SETTINGS = [
     {
-        category: 'HARM_CATEGORY_DANGEROUS_CONTENT',
-        threshold: 'BLOCK_NONE',
-    },
-    {
         category: 'HARM_CATEGORY_SEXUALLY_EXPLICIT',
         threshold: 'BLOCK_NONE',
     },
@@ -17,6 +13,10 @@ const SAFETY_SETTINGS = [
     },
     {
         category: 'HARM_CATEGORY_HARASSMENT',
+        threshold: 'BLOCK_NONE',
+    },
+    {
+        category: 'HARM_CATEGORY_DANGEROUS_CONTENT',
         threshold: 'BLOCK_NONE',
     },
 ]
@@ -39,6 +39,8 @@ export class Gemini implements IEngine {
         const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:streamGenerateContent?key=${apiKey}`
         const headers = {
             'Content-Type': 'application/json',
+            'User-Agent':
+                'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.77 Safari/537.36 Edg/91.0.864.41',
         }
         const body = {
             contents: [
@@ -46,7 +48,7 @@ export class Gemini implements IEngine {
                     role: 'user',
                     parts: [
                         {
-                            text: req.commandPrompt,
+                            text: 'Hello.',
                         },
                     ],
                 },
@@ -60,13 +62,35 @@ export class Gemini implements IEngine {
                 },
                 {
                     role: 'user',
-                    parts:
-                        req.assistantPrompts?.map((prompt) => ({
-                            text: prompt,
-                        })) ?? [],
+                    parts: [
+                        {
+                            text: req.commandPrompt,
+                        },
+                    ],
                 },
             ],
             safetySettings: SAFETY_SETTINGS,
+        }
+
+        if (req.assistantPrompts) {
+            req.assistantPrompts.forEach((prompt) => {
+                body.contents.push({
+                    role: 'model',
+                    parts: [
+                        {
+                            text: 'Ok.',
+                        },
+                    ],
+                })
+                body.contents.push({
+                    role: 'user',
+                    parts: [
+                        {
+                            text: prompt,
+                        },
+                    ],
+                })
+            })
         }
 
         let hasError = false
@@ -94,13 +118,13 @@ export class Gemini implements IEngine {
                     req.onError('no candidates')
                     return
                 }
-                const targetTxt = resp.candidates[0].content.parts[0].text
-                await req.onMessage({ content: targetTxt, role: '' })
                 if (resp.candidates[0].finishReason !== 'STOP') {
                     finished = true
                     req.onFinished(resp.candidates[0].finishReason)
                     return
                 }
+                const targetTxt = resp.candidates[0].content.parts[0].text
+                await req.onMessage({ content: targetTxt, role: '' })
             },
             onError: (err) => {
                 hasError = true
@@ -113,9 +137,9 @@ export class Gemini implements IEngine {
                     return
                 }
                 if (typeof err === 'object') {
-                    const { detail } = err
-                    if (detail) {
-                        req.onError(detail)
+                    const item = err[0]
+                    if (item && item.error && item.error.message) {
+                        req.onError(item.error.message)
                         return
                     }
                 }
