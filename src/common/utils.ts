@@ -76,6 +76,8 @@ const settingKeys: Record<keyof ISettings, number> = {
     autoCollect: 1,
     hideTheIconInTheDock: 1,
     languageDetectionEngine: 1,
+    autoHideWindowWhenOutOfFocus: 1,
+    proxy: 1,
 }
 
 export async function getSettings(): Promise<ISettings> {
@@ -155,6 +157,19 @@ export async function getSettings(): Promise<ISettings> {
     }
     if (!settings.languageDetectionEngine) {
         settings.languageDetectionEngine = 'baidu'
+    }
+    if (!settings.proxy) {
+        settings.proxy = {
+            enabled: false,
+            protocol: 'HTTP',
+            server: '127.0.0.1',
+            port: '1080',
+            basicAuth: {
+                username: '',
+                password: '',
+            },
+            noProxy: 'localhost,127.0.0.1',
+        }
     }
     return settings
 }
@@ -260,7 +275,7 @@ export async function exportToCsv<T extends Record<string, string | number>>(fil
     if (isDesktopApp()) {
         const { BaseDirectory, writeTextFile } = await import('@tauri-apps/plugin-fs')
         try {
-            return await writeTextFile(filename, csvFile, { dir: BaseDirectory.Desktop })
+            return await writeTextFile(filename, csvFile, { baseDir: BaseDirectory.Desktop })
         } catch (e) {
             console.error(e)
         }
