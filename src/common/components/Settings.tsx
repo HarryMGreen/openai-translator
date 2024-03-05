@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useReducer, useState } from 'react'
+import React, { useCallback, useEffect, useReducer, useState } from 'react'
 import _ from 'underscore'
 import { Tabs, Tab, StyledTabList, StyledTabPanel } from 'baseui-sd/tabs-motion'
 import icon from '../assets/images/icon-large.png'
@@ -9,12 +9,12 @@ import toast, { Toaster } from 'react-hot-toast'
 import * as utils from '../utils'
 import { Client as Styletron } from 'styletron-engine-atomic'
 import { Provider as StyletronProvider } from 'styletron-react'
-import { BaseProvider } from 'baseui-sd'
+import { BaseProvider, LightTheme } from 'baseui-sd'
 import { Input } from 'baseui-sd/input'
 import { createForm } from './Form'
 import { Button, ButtonProps } from 'baseui-sd/button'
 import { TranslateMode, APIModel } from '../translate'
-import { Select, Value, Option, SelectProps } from 'baseui-sd/select'
+import { Select, Value, Option, SelectProps, Options } from 'baseui-sd/select'
 import { Checkbox } from 'baseui-sd/checkbox'
 import { LangCode, supportedLanguages } from '../lang'
 import { useRecordHotkeys } from 'react-hotkeys-hook'
@@ -37,7 +37,7 @@ import { useLiveQuery } from 'dexie-react-hooks'
 import { actionService } from '../services/action'
 import { GlobalSuspense } from './GlobalSuspense'
 import { Modal, ModalBody, ModalButton, ModalFooter, ModalHeader } from 'baseui-sd/modal'
-import { Provider, getEngine } from '../engines'
+import { Provider, engineIcons, getEngine } from '../engines'
 import { IModel } from '../engines/interfaces'
 import { PiTextbox } from 'react-icons/pi'
 import { BsKeyboard } from 'react-icons/bs'
@@ -54,7 +54,7 @@ import {
 import useSWR from 'swr'
 import { Markdown } from './Markdown'
 import { open } from '@tauri-apps/plugin-shell'
-import { getCurrent } from '@tauri-apps/api/window'
+import { getCurrent } from '@tauri-apps/api/webviewWindow'
 import { usePromotionShowed } from '../hooks/usePromotionShowed'
 import { trackEvent } from '@aptabase/tauri'
 import { Skeleton } from 'baseui-sd/skeleton'
@@ -64,6 +64,7 @@ import { Notification } from 'baseui-sd/notification'
 import { usePromotionNeverDisplay } from '../hooks/usePromotionNeverDisplay'
 import { Textarea } from 'baseui-sd/textarea'
 import { ProxyTester } from './ProxyTester'
+import { CUSTOM_MODEL_ID } from '../constants'
 
 const langOptions: Value = supportedLanguages.reduce((acc, [id, label]) => {
     return [
@@ -800,8 +801,8 @@ function APIModelSelector({ currentProvider, provider, apiKey, value, onChange, 
         ;(async () => {
             try {
                 const models = await engine.listModels(apiKey)
-                setOptions(
-                    models.map((model: IModel) => ({
+                setOptions([
+                    ...models.map((model: IModel) => ({
                         label: (
                             <div
                                 style={{
@@ -831,8 +832,16 @@ function APIModelSelector({ currentProvider, provider, apiKey, value, onChange, 
                             </div>
                         ),
                         id: model.id,
-                    }))
-                )
+                    })),
+                    ...(engine.supportCustomModel()
+                        ? [
+                              {
+                                  id: CUSTOM_MODEL_ID,
+                                  label: t('Custom'),
+                              },
+                          ]
+                        : []),
+                ])
                 // eslint-disable-next-line @typescript-eslint/no-explicit-any
             } catch (e: any) {
                 if (provider === 'ChatGPT' && e.message && e.message.includes('not login')) {
@@ -843,7 +852,7 @@ function APIModelSelector({ currentProvider, provider, apiKey, value, onChange, 
                 setIsLoading(false)
             }
         })()
-    }, [apiKey, currentProvider, provider, refreshFlag, theme.colors.contentPrimary, theme.colors.contentTertiary])
+    }, [apiKey, currentProvider, provider, refreshFlag, t, theme.colors.contentPrimary, theme.colors.contentTertiary])
 
     return (
         <div>
@@ -1242,6 +1251,69 @@ function HotkeyRecorder({ value, onChange, onBlur, testId }: IHotkeyRecorderProp
     )
 }
 
+interface IAddProviderIconsProps {
+    options: Options
+    currentProvider?: Provider
+    hasPromotion?: boolean
+    theme: typeof LightTheme
+}
+
+const addProviderIcons = ({ options, currentProvider, hasPromotion, theme }: IAddProviderIconsProps) => {
+    if (!Array.isArray(options)) {
+        return options
+    }
+    return options.map((item) => {
+        if (typeof item.label !== 'string') {
+            return item
+        }
+        const icon = engineIcons[item.id as Provider]
+        if (!icon) {
+            return item
+        }
+        let label = (
+            <div
+                style={{
+                    display: 'flex',
+                    flexDirection: 'row',
+                    alignItems: 'center',
+                    gap: 8,
+                }}
+            >
+                {React.createElement(icon, { size: 10 }, [])}
+                {item.label}
+            </div>
+        )
+        if (item.id === 'OpenAI') {
+            label = (
+                <div
+                    style={{
+                        display: 'flex',
+                        flexDirection: 'row',
+                        alignItems: 'center',
+                        gap: 10,
+                    }}
+                >
+                    {label}
+                    {hasPromotion && currentProvider !== 'OpenAI' && (
+                        <div
+                            style={{
+                                width: '0.45rem',
+                                height: '0.45rem',
+                                borderRadius: '50%',
+                                backgroundColor: theme.colors.warning300,
+                            }}
+                        />
+                    )}
+                </div>
+            )
+        }
+        return {
+            ...item,
+            label,
+        }
+    })
+}
+
 interface IProviderSelectorProps {
     value?: Provider
     onChange?: (value: Provider) => void
@@ -1250,6 +1322,7 @@ interface IProviderSelectorProps {
 
 function ProviderSelector({ value, onChange, hasPromotion }: IProviderSelectorProps) {
     const { theme } = useTheme()
+    const { t } = useTranslation()
 
     let overrides: SelectProps['overrides'] = undefined
     if (hasPromotion && value !== 'OpenAI') {
@@ -1264,71 +1337,26 @@ function ProviderSelector({ value, onChange, hasPromotion }: IProviderSelectorPr
 
     const options = utils.isDesktopApp()
         ? ([
-              {
-                  label: (
-                      <div
-                          style={{
-                              display: 'flex',
-                              flexDirection: 'row',
-                              alignItems: 'center',
-                              gap: 10,
-                          }}
-                      >
-                          OpenAI
-                          {hasPromotion && value !== 'OpenAI' && (
-                              <div
-                                  style={{
-                                      width: '0.45rem',
-                                      height: '0.45rem',
-                                      borderRadius: '50%',
-                                      backgroundColor: theme.colors.warning300,
-                                  }}
-                              />
-                          )}
-                      </div>
-                  ),
-                  id: 'OpenAI',
-              },
+              { label: 'OpenAI', id: 'OpenAI' },
+              { label: `Ollama (${t('Local Model')})`, id: 'Ollama' },
               { label: 'Gemini', id: 'Gemini' },
               // { label: 'ChatGPT (Web)', id: 'ChatGPT' },
               { label: 'Azure', id: 'Azure' },
               { label: 'MiniMax', id: 'MiniMax' },
               { label: 'Moonshot', id: 'Moonshot' },
+              { label: 'Groq', id: 'Groq' },
           ] as {
               label: string
               id: Provider
           }[])
         : ([
-              {
-                  label: (
-                      <div
-                          style={{
-                              display: 'flex',
-                              flexDirection: 'row',
-                              alignItems: 'center',
-                              gap: 10,
-                          }}
-                      >
-                          OpenAI
-                          {hasPromotion && value !== 'OpenAI' && (
-                              <div
-                                  style={{
-                                      width: '0.45rem',
-                                      height: '0.45rem',
-                                      borderRadius: '50%',
-                                      backgroundColor: theme.colors.warning300,
-                                  }}
-                              />
-                          )}
-                      </div>
-                  ),
-                  id: 'OpenAI',
-              },
+              { label: 'OpenAI', id: 'OpenAI' },
               { label: 'ChatGPT (Web)', id: 'ChatGPT' },
               { label: 'Gemini', id: 'Gemini' },
               { label: 'Azure', id: 'Azure' },
               { label: 'MiniMax', id: 'MiniMax' },
               { label: 'Moonshot', id: 'Moonshot' },
+              { label: 'Groq', id: 'Groq' },
           ] as {
               label: string
               id: Provider
@@ -1350,7 +1378,12 @@ function ProviderSelector({ value, onChange, hasPromotion }: IProviderSelectorPr
             onChange={(params) => {
                 onChange?.(params.value[0].id as Provider | 'OpenAI')
             }}
-            options={options}
+            options={addProviderIcons({
+                options,
+                currentProvider: value,
+                hasPromotion,
+                theme,
+            })}
         />
     )
 }
@@ -1758,7 +1791,7 @@ export function InnerSettings({
                     position: utils.isBrowserExtensionOptions() ? 'sticky' : 'fixed',
                     left: 0,
                     top: 0,
-                    zIndex: 1001,
+                    zIndex: 999,
                     width: '100%',
                     display: 'flex',
                     flexDirection: 'column',
@@ -1947,6 +1980,8 @@ export function InnerSettings({
                 </div>
             )}
             <Form
+                autoComplete='off'
+                autoCapitalize='off'
                 form={form}
                 style={{
                     padding: '20px 25px',
@@ -1990,6 +2025,22 @@ export function InnerSettings({
                                 </div>
                             }
                             required
+                            caption={
+                                values.provider === 'Ollama' ? (
+                                    <div>
+                                        {t('Go to the')}{' '}
+                                        <a
+                                            target='_blank'
+                                            href='https://github.com/ollama/ollama#ollama'
+                                            rel='noreferrer'
+                                            style={linkStyle}
+                                        >
+                                            Ollama Homepage
+                                        </a>{' '}
+                                        {t('to learn how to install and setup.')}
+                                    </div>
+                                ) : undefined
+                            }
                         >
                             <ProviderSelector
                                 hasPromotion={openaiAPIKeyPromotion !== undefined && !openaiAPIKeyPromotionShowed}
@@ -1997,16 +2048,124 @@ export function InnerSettings({
                         </FormItem>
                         <div
                             style={{
-                                display: values.provider === 'Gemini' ? 'block' : 'none',
+                                display: values.provider === 'Ollama' ? 'block' : 'none',
                             }}
                         >
                             <FormItem
-                                name='geminiAPIModel'
-                                label={t('API Model')}
-                                required={values.provider === 'Gemini'}
+                                name='ollamaAPIURL'
+                                label={t('API URL')}
+                                required={values.provider === 'Ollama'}
+                                caption={t('Generally, there is no need to modify this item.')}
                             >
-                                <APIModelSelector provider='Gemini' currentProvider={values.provider} onBlur={onBlur} />
+                                <Input size='compact' onBlur={onBlur} />
                             </FormItem>
+                            <FormItem
+                                name='ollamaAPIModel'
+                                label={t('API Model')}
+                                required={values.provider === 'Ollama'}
+                                caption={
+                                    <div>
+                                        <div>
+                                            {t(
+                                                'Model needs to first use the `ollama pull` command to download locally, please view all models from this page:'
+                                            )}{' '}
+                                            <a
+                                                target='_blank'
+                                                href='https://ollama.com/library'
+                                                rel='noreferrer'
+                                                style={linkStyle}
+                                            >
+                                                Models
+                                            </a>
+                                        </div>
+                                    </div>
+                                }
+                            >
+                                <APIModelSelector provider='Ollama' currentProvider={values.provider} onBlur={onBlur} />
+                            </FormItem>
+                            <div
+                                style={{
+                                    display: values.ollamaAPIModel === CUSTOM_MODEL_ID ? 'block' : 'none',
+                                }}
+                            >
+                                <FormItem
+                                    name='ollamaCustomModelName'
+                                    label={t('Custom Model Name')}
+                                    required={values.provider === 'Ollama' && values.ollamaAPIModel === CUSTOM_MODEL_ID}
+                                >
+                                    <Input autoComplete='off' size='compact' />
+                                </FormItem>
+                            </div>
+                        </div>
+                        <div
+                            style={{
+                                display: values.provider === 'Groq' ? 'block' : 'none',
+                            }}
+                        >
+                            <FormItem
+                                required={values.provider === 'Groq'}
+                                name='groqAPIKey'
+                                label='Groq API Key'
+                                caption={
+                                    <div>
+                                        {t('Go to the')}{' '}
+                                        <a
+                                            target='_blank'
+                                            href='https://console.groq.com/keys'
+                                            rel='noreferrer'
+                                            style={linkStyle}
+                                        >
+                                            GroqCloud
+                                        </a>{' '}
+                                        {t('to get your API Key.')}
+                                    </div>
+                                }
+                            >
+                                <Input autoFocus type='password' size='compact' onBlur={onBlur} />
+                            </FormItem>
+                            <FormItem name='groqAPIModel' label={t('API Model')} required={values.provider === 'Groq'}>
+                                <APIModelSelector
+                                    provider='Groq'
+                                    currentProvider={values.provider}
+                                    apiKey={values.groqAPIKey}
+                                    onBlur={onBlur}
+                                />
+                            </FormItem>
+                            <div
+                                style={{
+                                    display: values.groqAPIModel === CUSTOM_MODEL_ID ? 'block' : 'none',
+                                }}
+                            >
+                                <FormItem
+                                    name='groqCustomModelName'
+                                    label={t('Custom Model Name')}
+                                    required={values.provider === 'Groq' && values.groqAPIModel === CUSTOM_MODEL_ID}
+                                >
+                                    <Input autoComplete='off' size='compact' />
+                                </FormItem>
+                            </div>
+                            <FormItem
+                                name='groqAPIURL'
+                                label={t('API URL')}
+                                required={values.provider === 'Groq'}
+                                caption={t('Generally, there is no need to modify this item.')}
+                            >
+                                <Input size='compact' onBlur={onBlur} />
+                            </FormItem>
+                            <FormItem
+                                name='groqAPIURLPath'
+                                label={t('API URL Path')}
+                                required={values.provider === 'Groq'}
+                                caption={t('Generally, there is no need to modify this item.')}
+                            >
+                                <Input size='compact' onBlur={onBlur} />
+                            </FormItem>
+                        </div>
+                        <div
+                            style={{
+                                display: values.provider === 'Gemini' ? 'block' : 'none',
+                            }}
+                        >
                             <FormItem
                                 required={values.provider === 'Gemini'}
                                 name='geminiAPIKey'
@@ -2027,6 +2186,13 @@ export function InnerSettings({
                                 }
                             >
                                 <Input autoFocus type='password' size='compact' onBlur={onBlur} />
+                            </FormItem>
+                            <FormItem
+                                name='geminiAPIModel'
+                                label={t('API Model')}
+                                required={values.provider === 'Gemini'}
+                            >
+                                <APIModelSelector provider='Gemini' currentProvider={values.provider} onBlur={onBlur} />
                             </FormItem>
                         </div>
                         <div
@@ -2112,6 +2278,19 @@ export function InnerSettings({
                             <FormItem name='apiModel' label={t('API Model')} required={values.provider === 'OpenAI'}>
                                 <APIModelSelector provider='OpenAI' currentProvider={values.provider} onBlur={onBlur} />
                             </FormItem>
+                            <div
+                                style={{
+                                    display: values.apiModel === CUSTOM_MODEL_ID ? 'block' : 'none',
+                                }}
+                            >
+                                <FormItem
+                                    name='customModelName'
+                                    label={t('Custom Model Name')}
+                                    required={values.provider === 'OpenAI' && values.apiModel === CUSTOM_MODEL_ID}
+                                >
+                                    <Input autoComplete='off' size='compact' />
+                                </FormItem>
+                            </div>
                             <FormItem name='apiURL' label={t('API URL')} required={values.provider === 'OpenAI'}>
                                 <Input size='compact' onBlur={onBlur} />
                             </FormItem>
@@ -2233,6 +2412,18 @@ export function InnerSettings({
                             >
                                 <Input autoFocus type='password' size='compact' onBlur={onBlur} />
                             </FormItem>
+                            <FormItem
+                                name='miniMaxAPIModel'
+                                label={t('API Model')}
+                                required={values.provider === 'MiniMax'}
+                            >
+                                <APIModelSelector
+                                    provider='MiniMax'
+                                    currentProvider={values.provider}
+                                    onBlur={onBlur}
+                                    apiKey={values.miniMaxAPIKey}
+                                />
+                            </FormItem>
                         </div>
                         <div
                             style={{
@@ -2348,10 +2539,10 @@ export function InnerSettings({
                         )}
                         <FormItem
                             style={{
-                                display: isDesktopApp && isMacOS ? 'block' : 'none',
+                                display: isDesktopApp ? 'block' : 'none',
                             }}
                             name='hideTheIconInTheDock'
-                            label={t('Hide the icon in the Dock bar')}
+                            label={isMacOS ? t('Hide the icon in the Dock bar') : t('Hide the icon in the taskbar')}
                         >
                             <MyCheckbox onBlur={onBlur} />
                         </FormItem>

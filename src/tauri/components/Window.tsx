@@ -1,5 +1,5 @@
 import { useCallback, useEffect } from 'react'
-import { getCurrent } from '@tauri-apps/api/window'
+import { getCurrent } from '@tauri-apps/api/webviewWindow'
 import { useTheme } from '../../common/hooks/useTheme'
 import { Provider as StyletronProvider } from 'styletron-react'
 import { BaseProvider } from 'baseui-sd'
@@ -12,7 +12,7 @@ import { useTranslation } from 'react-i18next'
 import { useSettings } from '../../common/hooks/useSettings'
 import { IThemedStyleProps } from '../../common/types'
 import { createUseStyles } from 'react-jss'
-import { invoke } from '@tauri-apps/api/primitives'
+import { invoke } from '@tauri-apps/api/core'
 import { open } from '@tauri-apps/plugin-shell'
 import { usePinned } from '../../common/hooks/usePinned'
 
@@ -65,6 +65,27 @@ const useStyles = createUseStyles({
     }),
 })
 
+interface ITitlebarContainerProps {
+    children: React.ReactNode
+    windowsTitlebarDisableDarkMode?: boolean
+}
+
+export function TitlebarContainer(props: ITitlebarContainerProps) {
+    const { theme, themeType } = useTheme()
+    const styles = useStyles({ theme, themeType, windowsTitlebarDisableDarkMode: props.windowsTitlebarDisableDarkMode })
+    const isMacOS = navigator.userAgent.includes('Mac OS X')
+
+    if (isMacOS) {
+        return (
+            <div className={styles.titlebar} data-tauri-drag-region>
+                {props.children}
+            </div>
+        )
+    }
+
+    return <div className={styles.titlebar}>{props.children}</div>
+}
+
 export function InnerWindow(props: IWindowProps) {
     const { theme, themeType } = useTheme()
     const styles = useStyles({ theme, themeType, windowsTitlebarDisableDarkMode: props.windowsTitlebarDisableDarkMode })
@@ -80,7 +101,7 @@ export function InnerWindow(props: IWindowProps) {
         }
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         invoke('get_translator_window_always_on_top').then((pinned: any) => {
-            return setPinned(pinned)
+            return setPinned(() => pinned)
         })
     }, [props.isTranslatorWindow, setPinned])
 
@@ -158,7 +179,7 @@ export function InnerWindow(props: IWindowProps) {
                 }
             }}
         >
-            <div className={styles.titlebar} data-tauri-drag-region>
+            <TitlebarContainer windowsTitlebarDisableDarkMode={props.windowsTitlebarDisableDarkMode}>
                 {isMacOS && (
                     <>
                         <div className={styles.titlebarButton} onClick={handlePin}>
@@ -217,7 +238,7 @@ export function InnerWindow(props: IWindowProps) {
                         </div>
                     </>
                 )}
-            </div>
+            </TitlebarContainer>
             {props.children}
         </div>
     )

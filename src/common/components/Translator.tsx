@@ -73,7 +73,7 @@ import { useLazyEffect } from '../usehooks'
 import LogoWithText, { type LogoWithTextRef } from './LogoWithText'
 import Toaster from './Toaster'
 import { readFile } from '@tauri-apps/plugin-fs'
-import { getCurrent } from '@tauri-apps/api/window'
+import { getCurrent } from '@tauri-apps/api/webviewWindow'
 import { useDeepCompareCallback } from 'use-deep-compare'
 import { useTranslatorStore } from '../store'
 import useSWR from 'swr'
@@ -86,7 +86,7 @@ import {
 } from '../services/promotion'
 import { usePromotionShowed } from '../hooks/usePromotionShowed'
 import { SpeakerIcon } from './SpeakerIcon'
-import { engineIcons } from '../engines'
+import { engineIcons, getEngine } from '../engines'
 
 const cache = new LRUCache({
     max: 500,
@@ -122,7 +122,6 @@ const useStyles = createUseStyles({
         position: 'fixed',
         width: '100%',
         height: '42px',
-        cursor: 'pointer',
         left: '0',
         bottom: '0',
         paddingLeft: '6px',
@@ -515,6 +514,7 @@ function InnerTranslator(props: IInnerTranslatorProps) {
     const [showWordbookButtons, setShowWordbookButtons] = useState(false)
     const { t, i18n } = useTranslation()
     const { settings } = useSettings()
+
     useEffect(() => {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         if (settings?.i18n !== (i18n as any).language) {
@@ -522,6 +522,15 @@ function InnerTranslator(props: IInnerTranslatorProps) {
             ;(i18n as any).changeLanguage(settings?.i18n)
         }
     }, [i18n, settings.i18n])
+
+    const [engineModel, setEngineModel] = useState<string>()
+    useEffect(() => {
+        if (!settings) {
+            return
+        }
+        const engine = getEngine(settings.provider)
+        engine.getModel().then(setEngineModel)
+    }, [settings])
 
     const [autoFocus, setAutoFocus] = useState(false)
 
@@ -1546,6 +1555,7 @@ function InnerTranslator(props: IInnerTranslatorProps) {
                                         setTranslateDeps((v) => {
                                             return {
                                                 ...v,
+                                                text: editableText,
                                                 sourceLang: langId as LangCode,
                                             }
                                         })
@@ -1593,6 +1603,7 @@ function InnerTranslator(props: IInnerTranslatorProps) {
                                         setTranslateDeps((v) => {
                                             return {
                                                 ...v,
+                                                text: editableText,
                                                 targetLang: langId as LangCode,
                                             }
                                         })
@@ -1673,7 +1684,7 @@ function InnerTranslator(props: IInnerTranslatorProps) {
                                                 const actionID = item.id
                                                 if (actionID === '__manager__') {
                                                     if (isTauri()) {
-                                                        const { invoke } = await import('@tauri-apps/api/primitives')
+                                                        const { invoke } = await import('@tauri-apps/api/core')
                                                         await invoke('show_action_manager_window')
                                                     } else {
                                                         setShowActionManager(true)
@@ -2271,12 +2282,10 @@ function InnerTranslator(props: IInnerTranslatorProps) {
                             <div className={styles.brand}>
                                 {React.createElement(engineIcons[settings.provider], {
                                     size: 10,
-                                    style: {
-                                        marginBottom: 1,
-                                    },
                                 })}
                                 {settings.provider}
                             </div>
+                            {engineModel && ` ${engineModel}`}
                         </div>
                     )}
                 </div>
