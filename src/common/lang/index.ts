@@ -369,19 +369,20 @@ export function getLangConfig(langCode: LangCode): LanguageConfig {
         isTarget: true,
         isVariant: false,
         direction: 'ltr',
-        rolePrompt: 'You are a translator, translate directly without explanation.',
+        rolePrompt: 'You are a translator.',
         genAssistantPrompts: () => {
-            return []
-            // return [
-            //     oneLine`
-            //     Please translate the text into a colloquial,
-            //     professional, elegant and fluent content,
-            //     without the style of machine translation.`,
-            // ]
+            return [
+                'Please translate directly without explanation.',
+                oneLine`
+                Please translate the text into a colloquial,
+                professional, elegant and fluent content,
+                without the style of machine translation.`,
+                'Please do not return the original text, only return the translated content.',
+            ]
         },
         genCommandPrompt: (sourceLanguageConfig: LanguageConfig) =>
             oneLine`
-            Translate the following text from ${sourceLanguageConfig.name} to ${config.name} without the style of machine translation. (If there are no Emojis in the original text, please don't output them.)`,
+            Translate the following text from ${sourceLanguageConfig.name} to ${config.name} without the style of machine translation.`,
     }
     return { ...DEFAULT_CONFIG, ...config }
 }

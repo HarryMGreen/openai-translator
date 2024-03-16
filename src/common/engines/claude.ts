@@ -1,106 +1,84 @@
 /* eslint-disable camelcase */
+import { CUSTOM_MODEL_ID } from '../constants'
 import { fetchSSE, getSettings } from '../utils'
 import { AbstractEngine } from './abstract-engine'
-import { IMessageRequest, IModel } from './interfaces'
+import { IModel, IMessageRequest } from './interfaces'
 
-const SAFETY_SETTINGS = [
-    {
-        category: 'HARM_CATEGORY_SEXUALLY_EXPLICIT',
-        threshold: 'BLOCK_NONE',
-    },
-    {
-        category: 'HARM_CATEGORY_HATE_SPEECH',
-        threshold: 'BLOCK_NONE',
-    },
-    {
-        category: 'HARM_CATEGORY_HARASSMENT',
-        threshold: 'BLOCK_NONE',
-    },
-    {
-        category: 'HARM_CATEGORY_DANGEROUS_CONTENT',
-        threshold: 'BLOCK_NONE',
-    },
-]
-
-export class Gemini extends AbstractEngine {
-    // eslint-disable-next-line @typescript-eslint/no-unused-vars
-    async listModels(apiKey_: string | undefined): Promise<IModel[]> {
-        return [
-            {
-                id: 'gemini-pro',
-                name: 'gemini-pro',
-            },
-        ]
+export class Claude extends AbstractEngine {
+    supportCustomModel(): boolean {
+        return true
     }
 
-    async getModel() {
+    async getModel(): Promise<string> {
         const settings = await getSettings()
-        return settings.geminiAPIModel
+        if (settings.claudeAPIModel === CUSTOM_MODEL_ID) {
+            return settings.claudeCustomModelName
+        }
+        return settings.claudeAPIModel
+    }
+
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    async listModels(apiKey_: string | undefined): Promise<IModel[]> {
+        return Promise.resolve([
+            {
+                id: 'claude-3-opus-20240229',
+                name: 'claude-3-opus-20240229',
+            },
+        ])
     }
 
     async sendMessage(req: IMessageRequest): Promise<void> {
         const settings = await getSettings()
-        const apiKey = settings.geminiAPIKey
+        const apiKey = settings.claudeAPIKey
         const model = await this.getModel()
-        const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:streamGenerateContent?key=${apiKey}`
+        const url = `${settings.claudeAPIURL}${settings.claudeAPIURLPath}`
         const headers = {
             'Content-Type': 'application/json',
             'User-Agent':
                 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.77 Safari/537.36 Edg/91.0.864.41',
+            'anthropic-version': '2023-06-01',
+            'anthropic-beta': 'messages-2023-12-15',
+            'x-api-key': apiKey,
         }
         const body = {
-            contents: [
+            model,
+            stream: true,
+            max_tokens: 4096,
+            messages: [
                 {
                     role: 'user',
-                    parts: [
-                        {
-                            text: req.rolePrompt,
-                        },
-                    ],
+                    content: req.rolePrompt,
                 },
                 {
-                    role: 'model',
-                    parts: [
-                        {
-                            text: `Yes, that's me.`,
-                        },
-                    ],
+                    role: 'assistant',
+                    content: `Yes, that's me.`,
+                },
+                ...(req.assistantPrompts?.reduce(
+                    (acc, cur) => {
+                        return [
+                            ...acc,
+                            {
+                                role: 'user',
+                                content: cur,
+                            },
+                            {
+                                role: 'assistant',
+                                content: 'I understand, I will strictly do as you said.',
+                            },
+                        ]
+                    },
+                    [] as { role: string; content: string }[]
+                ) ?? []),
+                {
+                    role: 'user',
+                    content: req.commandPrompt,
+                },
+                {
+                    role: 'assistant',
+                    content: 'Ok, the result is:',
                 },
             ],
-            safetySettings: SAFETY_SETTINGS,
         }
-
-        if (req.assistantPrompts) {
-            req.assistantPrompts.forEach((prompt) => {
-                body.contents.push({
-                    role: 'user',
-                    parts: [
-                        {
-                            text: prompt,
-                        },
-                    ],
-                })
-                body.contents.push({
-                    role: 'model',
-                    parts: [
-                        {
-                            text: 'I understand, I will strictly do as you said.',
-                        },
-                    ],
-                })
-            })
-        }
-
-        body.contents = body.contents.concat([
-            {
-                role: 'user',
-                parts: [
-                    {
-                        text: req.commandPrompt,
-                    },
-                ],
-            },
-        ])
 
         let hasError = false
         let finished = false
@@ -109,7 +87,6 @@ export class Gemini extends AbstractEngine {
             headers,
             body: JSON.stringify(body),
             signal: req.signal,
-            useJSONParser: true,
             onMessage: async (msg) => {
                 if (finished) return
                 let resp
@@ -121,19 +98,22 @@ export class Gemini extends AbstractEngine {
                     req.onError(JSON.stringify(e))
                     return
                 }
-                if (!resp.candidates || resp.candidates.length === 0) {
-                    hasError = true
-                    finished = true
-                    req.onError('no candidates')
+                const { type } = resp
+                if (type === 'content_block_delta') {
+                    const { delta } = resp
+                    const { text } = delta
+                    await req.onMessage({ content: text, role: '' })
                     return
                 }
-                if (resp.candidates[0].finishReason !== 'STOP') {
+                if (type === 'message_stop') {
                     finished = true
-                    req.onFinished(resp.candidates[0].finishReason)
+                    req.onFinished('stop')
                     return
                 }
-                const targetTxt = resp.candidates[0].content.parts[0].text
-                await req.onMessage({ content: targetTxt, role: '' })
+                if (type === 'error') {
+                    const { error } = resp
+                    req.onError('Claude API response: ' + error.message)
+                }
             },
             onError: (err) => {
                 hasError = true

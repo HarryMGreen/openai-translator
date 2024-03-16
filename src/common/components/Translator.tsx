@@ -86,7 +86,7 @@ import {
 } from '../services/promotion'
 import { usePromotionShowed } from '../hooks/usePromotionShowed'
 import { SpeakerIcon } from './SpeakerIcon'
-import { engineIcons, getEngine } from '../engines'
+import { Provider, engineIcons, getEngine } from '../engines'
 
 const cache = new LRUCache({
     max: 500,
@@ -128,7 +128,7 @@ const useStyles = createUseStyles({
         display: 'flex',
         alignItems: 'center',
         gap: '10px',
-        background: props.themeType === 'dark' ? 'rgba(31, 31, 31, 0.5)' : 'rgba(255, 255, 255, 0.5)',
+        background: props.themeType === 'dark' ? props.theme.colors.backgroundPrimary : 'rgba(255, 255, 255, 0.5)',
         backdropFilter: 'blur(10px)',
     }),
     'poweredBy': (props: IThemedStyleProps) => ({
@@ -155,7 +155,7 @@ const useStyles = createUseStyles({
                   'top': 0,
                   'width': '100%',
                   'boxSizing': 'border-box',
-                  'padding': '30px 16px 8px',
+                  'padding': navigator.userAgent.includes('Mac OS X') ? '30px 16px 8px' : '8px 16px',
                   'background': props.themeType === 'dark' ? 'rgba(31, 31, 31, 0.5)' : 'rgba(255, 255, 255, 0.5)',
                   'display': 'flex',
                   'flexDirection': 'row',
@@ -523,13 +523,20 @@ function InnerTranslator(props: IInnerTranslatorProps) {
         }
     }, [i18n, settings.i18n])
 
-    const [engineModel, setEngineModel] = useState<string>()
     useEffect(() => {
         if (!settings) {
             return
         }
         const engine = getEngine(settings.provider)
-        engine.getModel().then(setEngineModel)
+        engine.getModel().then((model) => {
+            setTranslateDeps((prev) => {
+                return {
+                    ...prev,
+                    provider: settings.provider,
+                    engineModel: model,
+                }
+            })
+        })
     }, [settings])
 
     const [autoFocus, setAutoFocus] = useState(false)
@@ -777,11 +784,15 @@ function InnerTranslator(props: IInnerTranslatorProps) {
         targetLang?: LangCode
         text: string
         action?: Action
+        provider?: Provider
+        engineModel?: string
     }>({
         sourceLang: undefined,
         targetLang: undefined,
         text: '',
         action: undefined,
+        provider: undefined,
+        engineModel: undefined,
     })
 
     const getTranslateDeps = useCallback(
@@ -1071,9 +1082,9 @@ function InnerTranslator(props: IInnerTranslatorProps) {
                 }
             }
             beforeTranslate()
-            const cachedKey = `translate:${settings?.provider ?? ''}:${settings?.apiModel ?? ''}:${action.id}:${
-                action.rolePrompt
-            }:${action.commandPrompt}:${
+            const cachedKey = `translate:${translateDeps.provider ?? ''}:${translateDeps.engineModel ?? ''}:${
+                action.id
+            }:${action.rolePrompt}:${action.commandPrompt}:${
                 action.outputRenderingFormat
             }:${sourceLang}:${targetLang}:${text}:${selectedWord}:${translationFlag}`
             const cachedValue = cache.get(cachedKey)
@@ -1136,7 +1147,7 @@ function InnerTranslator(props: IInnerTranslatorProps) {
                 }
             }
         },
-        [translateDeps, settings?.provider, settings?.apiModel, translationFlag, startLoading, stopLoading, t]
+        [translateDeps, translationFlag, startLoading, stopLoading, t]
     )
 
     const translateControllerRef = useRef<AbortController | null>(null)
@@ -1173,6 +1184,10 @@ function InnerTranslator(props: IInnerTranslatorProps) {
             return
         }
         if (settings.provider === 'Moonshot' && !settings.moonshotAPIKey) {
+            setShowSettings(true)
+            return
+        }
+        if (settings.provider === 'Groq' && !settings.groqAPIKey) {
             setShowSettings(true)
             return
         }
@@ -1533,7 +1548,11 @@ function InnerTranslator(props: IInnerTranslatorProps) {
                             boxShadow: isDesktopApp() && !isScrolledToTop ? theme.lighting.shadow600 : undefined,
                         }}
                     >
-                        {showLogo && <LogoWithText ref={logoWithTextRef} />}
+                        {showLogo ? (
+                            <LogoWithText ref={logoWithTextRef} />
+                        ) : (
+                            <div style={{ flexShrink: 0, marginRight: 'auto' }} />
+                        )}
                         <div className={styles.popupCardHeaderActionsContainer} ref={languagesSelectorRef}>
                             <div className={styles.from}>
                                 <Select
@@ -2202,6 +2221,11 @@ function InnerTranslator(props: IInnerTranslatorProps) {
                     className={styles.footer}
                     style={{
                         boxShadow: isScrolledToBottom ? undefined : theme.lighting.shadow700,
+                        background: isScrolledToBottom
+                            ? undefined
+                            : themeType === 'dark'
+                            ? 'rgba(31, 31, 31, 0.5)'
+                            : undefined,
                     }}
                 >
                     <Tooltip content={showSettings ? t('Go to Translator') : t('Go to Settings')} placement='right'>
@@ -2285,7 +2309,7 @@ function InnerTranslator(props: IInnerTranslatorProps) {
                                 })}
                                 {settings.provider}
                             </div>
-                            {engineModel && ` ${engineModel}`}
+                            {translateDeps.engineModel && ` ${translateDeps.engineModel}`}
                         </div>
                     )}
                 </div>
