@@ -65,6 +65,8 @@ import { usePromotionNeverDisplay } from '../hooks/usePromotionNeverDisplay'
 import { Textarea } from 'baseui-sd/textarea'
 import { ProxyTester } from './ProxyTester'
 import { CUSTOM_MODEL_ID } from '../constants'
+import { isMacOS } from '../utils'
+import NumberInput from './NumberInput'
 
 const langOptions: Value = supportedLanguages.reduce((acc, [id, label]) => {
     return [
@@ -845,7 +847,11 @@ function APIModelSelector({ currentProvider, provider, apiKey, value, onChange, 
                 ])
                 // eslint-disable-next-line @typescript-eslint/no-explicit-any
             } catch (e: any) {
-                if (provider === 'ChatGPT' && e.message && e.message.includes('not login')) {
+                if (
+                    provider === 'ChatGPT' &&
+                    e.message &&
+                    (e.message.includes('not login') || e.message.includes('Forbidden'))
+                ) {
                     setIsChatGPTNotLogin(true)
                 }
                 setErrMsg(e.message)
@@ -1339,6 +1345,8 @@ function ProviderSelector({ value, onChange, hasPromotion }: IProviderSelectorPr
     const options = utils.isDesktopApp()
         ? ([
               { label: 'OpenAI', id: 'OpenAI' },
+              { label: `Kimi (${t('Free')})`, id: 'Kimi' },
+              { label: `${t('ChatGLM')} (${t('Free')})`, id: 'ChatGLM' },
               { label: `Ollama (${t('Local Model')})`, id: 'Ollama' },
               { label: 'Gemini', id: 'Gemini' },
               // { label: 'ChatGPT (Web)', id: 'ChatGPT' },
@@ -1353,6 +1361,8 @@ function ProviderSelector({ value, onChange, hasPromotion }: IProviderSelectorPr
           }[])
         : ([
               { label: 'OpenAI', id: 'OpenAI' },
+              { label: `Kimi (${t('Free')})`, id: 'Kimi' },
+              { label: `${t('ChatGLM')} (${t('Free')})`, id: 'ChatGLM' },
               { label: 'ChatGPT (Web)', id: 'ChatGPT' },
               { label: 'Gemini', id: 'Gemini' },
               { label: 'Azure', id: 'Azure' },
@@ -1548,7 +1558,6 @@ export function InnerSettings({
     }, [prevValues, values])
 
     const isDesktopApp = utils.isDesktopApp()
-    const isMacOS = navigator.userAgent.includes('Mac OS X')
 
     const styles = useStyles({ theme, themeType, isDesktopApp })
 
@@ -1782,7 +1791,7 @@ export function InnerSettings({
             style={{
                 paddingTop: utils.isBrowserExtensionOptions() ? undefined : '136px',
                 paddingBottom: utils.isBrowserExtensionOptions() ? undefined : '32px',
-                background: theme.colors.backgroundPrimary,
+                background: isDesktopApp ? 'transparent' : theme.colors.backgroundPrimary,
                 minWidth: isDesktopApp ? 450 : 400,
                 maxHeight: utils.isUserscript() ? 'calc(100vh - 32px)' : undefined,
                 overflow: utils.isUserscript() ? 'auto' : undefined,
@@ -2234,6 +2243,118 @@ export function InnerSettings({
                         </div>
                         <div
                             style={{
+                                display: values.provider === 'Kimi' && utils.isDesktopApp() ? 'block' : 'none',
+                            }}
+                        >
+                            <FormItem
+                                required={values.provider === 'Kimi' && utils.isDesktopApp()}
+                                name='kimiRefreshToken'
+                                label='Kimi Refresh Token'
+                                caption={
+                                    <div>
+                                        {t('Go to the')}{' '}
+                                        <a
+                                            target='_blank'
+                                            href={
+                                                values?.i18n?.toLowerCase().includes('zh')
+                                                    ? 'https://github.com/openai-translator/openai-translator/blob/main/docs/kimi-cn.md'
+                                                    : 'https://github.com/openai-translator/openai-translator/blob/main/docs/kimi.md'
+                                            }
+                                            rel='noreferrer'
+                                            style={linkStyle}
+                                        >
+                                            Tutorial
+                                        </a>{' '}
+                                        {t('to get your refresh_token.')}
+                                    </div>
+                                }
+                            >
+                                <Input autoFocus type='password' size='compact' onBlur={onBlur} />
+                            </FormItem>
+                            <FormItem
+                                required={values.provider === 'Kimi' && utils.isDesktopApp()}
+                                name='kimiAccessToken'
+                                label='Kimi Access Token'
+                                caption={
+                                    <div>
+                                        {t('Go to the')}{' '}
+                                        <a
+                                            target='_blank'
+                                            href={
+                                                values?.i18n?.toLowerCase().includes('zh')
+                                                    ? 'https://github.com/openai-translator/openai-translator/blob/main/docs/kimi-cn.md'
+                                                    : 'https://github.com/openai-translator/openai-translator/blob/main/docs/kimi.md'
+                                            }
+                                            rel='noreferrer'
+                                            style={linkStyle}
+                                        >
+                                            Tutorial
+                                        </a>{' '}
+                                        {t('to get your access_token.')}
+                                    </div>
+                                }
+                            >
+                                <Input autoFocus type='password' size='compact' onBlur={onBlur} />
+                            </FormItem>
+                        </div>
+                        <div
+                            style={{
+                                display: values.provider === 'ChatGLM' && utils.isDesktopApp() ? 'block' : 'none',
+                            }}
+                        >
+                            <FormItem
+                                required={values.provider === 'ChatGLM' && utils.isDesktopApp()}
+                                name='chatglmRefreshToken'
+                                label={`${t('ChatGLM')} Refresh Token`}
+                                caption={
+                                    <div>
+                                        {t('Go to the')}{' '}
+                                        <a
+                                            target='_blank'
+                                            href={
+                                                values?.i18n?.toLowerCase().includes('zh')
+                                                    ? 'https://github.com/openai-translator/openai-translator/blob/main/docs/chatglm-cn.md'
+                                                    : 'https://github.com/openai-translator/openai-translator/blob/main/docs/chatglm.md'
+                                            }
+                                            rel='noreferrer'
+                                            style={linkStyle}
+                                        >
+                                            Tutorial
+                                        </a>{' '}
+                                        {t('to get your refresh_token.')}
+                                    </div>
+                                }
+                            >
+                                <Input autoFocus type='password' size='compact' onBlur={onBlur} />
+                            </FormItem>
+                            <FormItem
+                                required={values.provider === 'ChatGLM' && utils.isDesktopApp()}
+                                name='chatglmAccessToken'
+                                label={`${t('ChatGLM')} Token`}
+                                caption={
+                                    <div>
+                                        {t('Go to the')}{' '}
+                                        <a
+                                            target='_blank'
+                                            href={
+                                                values?.i18n?.toLowerCase().includes('zh')
+                                                    ? 'https://github.com/openai-translator/openai-translator/blob/main/docs/chatglm-cn.md'
+                                                    : 'https://github.com/openai-translator/openai-translator/blob/main/docs/chatglm.md'
+                                            }
+                                            rel='noreferrer'
+                                            style={linkStyle}
+                                        >
+                                            Tutorial
+                                        </a>{' '}
+                                        {t('to get your token.')}
+                                    </div>
+                                }
+                            >
+                                <Input autoFocus type='password' size='compact' onBlur={onBlur} />
+                            </FormItem>
+                        </div>
+                        <div
+                            style={{
                                 display: values.provider === 'Gemini' ? 'block' : 'none',
                             }}
                         >
@@ -2421,6 +2542,9 @@ export function InnerSettings({
                             >
                                 <Input size='compact' />
                             </FormItem>
+                            <FormItem name='azMaxWords' label='Max Tokens' required={values.provider === 'Azure'}>
+                                <NumberInput size='compact' />
+                            </FormItem>
                         </div>
                         <div
                             style={{
@@ -2549,6 +2673,21 @@ export function InnerSettings({
                         </FormItem>
                         <FormItem name='themeType' label={t('Theme')}>
                             <ThemeTypeSelector onBlur={onBlur} />
+                        </FormItem>
+                        <FormItem
+                            style={{
+                                display: isDesktopApp ? 'block' : 'none',
+                            }}
+                            name='enableBackgroundBlur'
+                            label={t('Window background blur')}
+                            caption={t(
+                                "If the window background blur effect is enabled, please ensure to set the 'Theme' to 'Follow the System', as it is currently not possible to manually switch between light and dark themes when the window background blur is active."
+                            )}
+                        >
+                            <MyCheckbox onBlur={onBlur} />
+                        </FormItem>
+                        <FormItem name='fontSize' label={t('Font size')}>
+                            <NumberInput />
                         </FormItem>
                         <FormItem
                             name='alwaysShowIcons'

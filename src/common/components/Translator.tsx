@@ -31,6 +31,7 @@ import {
     isUserscript,
     setSettings,
     isBrowserExtensionContentScript,
+    isMacOS,
 } from '../utils'
 import { InnerSettings } from './Settings'
 import { containerID, popupCardInnerContainerId } from '../../browser-extension/content_script/consts'
@@ -87,6 +88,7 @@ import {
 import { usePromotionShowed } from '../hooks/usePromotionShowed'
 import { SpeakerIcon } from './SpeakerIcon'
 import { Provider, engineIcons, getEngine } from '../engines'
+import color from 'color'
 
 const cache = new LRUCache({
     max: 500,
@@ -128,7 +130,6 @@ const useStyles = createUseStyles({
         display: 'flex',
         alignItems: 'center',
         gap: '10px',
-        background: props.themeType === 'dark' ? props.theme.colors.backgroundPrimary : 'rgba(255, 255, 255, 0.5)',
         backdropFilter: 'blur(10px)',
     }),
     'poweredBy': (props: IThemedStyleProps) => ({
@@ -155,7 +156,7 @@ const useStyles = createUseStyles({
                   'top': 0,
                   'width': '100%',
                   'boxSizing': 'border-box',
-                  'padding': navigator.userAgent.includes('Mac OS X') ? '30px 16px 8px' : '8px 16px',
+                  'padding': isMacOS ? '30px 16px 8px' : '8px 16px',
                   'background': props.themeType === 'dark' ? 'rgba(31, 31, 31, 0.5)' : 'rgba(255, 255, 255, 0.5)',
                   'display': 'flex',
                   'flexDirection': 'row',
@@ -298,7 +299,6 @@ const useStyles = createUseStyles({
         },
     },
     'popupCardTranslatedContentContainer': (props: IThemedStyleProps) => ({
-        'fontSize': '15px',
         'marginTop': '-14px',
         'display': 'flex',
         'overflowY': 'auto',
@@ -406,6 +406,18 @@ const useStyles = createUseStyles({
     'flexPlaceHolder': {
         marginRight: 'auto',
     },
+    'popupCardContentContainerBackgroundBlur': {
+        'height': '100vh',
+        'boxSizing': 'border-box',
+        'overflow': 'auto',
+        'paddingTop': isMacOS ? '82px !important' : '58px !important',
+        'paddingBottom': '42px',
+        'scrollbarWidth': 'none',
+        '&::-webkit-scrollbar': {
+            display: 'none',
+        },
+        'mask': 'linear-gradient(180deg, #0000 58px, #000f 72px, #000f calc(100% - 60px), #0000 calc(100% - 40px));',
+    },
 })
 
 interface IActionStrItem {
@@ -505,6 +517,7 @@ function InnerTranslator(props: IInnerTranslatorProps) {
     const [showActionManager, setShowActionManager] = useState(false)
 
     const [translationFlag, forceTranslate] = useReducer((x: number) => x + 1, 0)
+    const translationIDRef = useRef(0)
 
     const editorRef = useRef<HTMLTextAreaElement>(null)
     const isCompositing = useRef(false)
@@ -1032,6 +1045,11 @@ function InnerTranslator(props: IInnerTranslatorProps) {
 
     const translateText = useDeepCompareCallback(
         async (selectedWord: string, signal: AbortSignal) => {
+            translationIDRef.current += 1
+            if (translationIDRef.current > 1024) {
+                translationIDRef.current = 0
+            }
+            const translationID = translationIDRef.current
             const { text, sourceLang, targetLang, action } = translateDeps
             if (!text || !sourceLang || !targetLang || !action) {
                 return
@@ -1056,7 +1074,7 @@ function InnerTranslator(props: IInnerTranslatorProps) {
             }
             const afterTranslate = (reason: string) => {
                 stopLoading()
-                if (reason !== 'stop' && reason !== 'eos') {
+                if (reason !== 'stop' && reason !== 'eos' && reason !== 'end_turn') {
                     if (reason === 'length' || reason === 'max_tokens') {
                         toast(t('Chars Limited'), {
                             duration: 5000,
@@ -1104,7 +1122,7 @@ function InnerTranslator(props: IInnerTranslatorProps) {
                     detectFrom: sourceLang,
                     detectTo: targetLang,
                     onStatusCode: (statusCode) => {
-                        setIsNotLogin(statusCode === 401 || statusCode === 403)
+                        setIsNotLogin(statusCode === 401 || statusCode === 403 || statusCode === 422)
                     },
                     onMessage: async (message) => {
                         if (!message.content) {
@@ -1141,7 +1159,7 @@ function InnerTranslator(props: IInnerTranslatorProps) {
                 setActionStr('Error')
                 setErrorMessage((error as Error).toString())
             } finally {
-                if (!isStopped) {
+                if (!isStopped && translationID === translationIDRef.current) {
                     stopLoading()
                     isStopped = true
                 }
@@ -1512,6 +1530,13 @@ function InnerTranslator(props: IInnerTranslatorProps) {
         }
     }, [showSettings])
 
+    const getFooterBackgroundColor = useCallback(() => {
+        if (settings.enableBackgroundBlur) {
+            return 'transparent !important'
+        }
+        return color(theme.colors.backgroundPrimary).alpha(0.5).string()
+    }, [settings.enableBackgroundBlur, theme.colors.backgroundPrimary])
+
     return (
         <div
             className={clsx(styles.popupCard, {
@@ -1520,8 +1545,8 @@ function InnerTranslator(props: IInnerTranslatorProps) {
             ref={containerRef}
             style={{
                 minHeight: vocabularyType !== 'hide' ? '600px' : undefined,
-                background: theme.colors.backgroundPrimary,
-                paddingBottom: showSettings ? '0px' : '42px',
+                background: isDesktopApp() ? 'transparent' : theme.colors.backgroundPrimary,
+                paddingBottom: showSettings || settings.enableBackgroundBlur ? '0px' : '42px',
             }}
         >
             {showSettings && (
@@ -1546,6 +1571,7 @@ function InnerTranslator(props: IInnerTranslatorProps) {
                         style={{
                             cursor: isDesktopApp() ? 'default' : showLogo ? 'move' : 'default',
                             boxShadow: isDesktopApp() && !isScrolledToTop ? theme.lighting.shadow600 : undefined,
+                            background: settings.enableBackgroundBlur ? 'transparent' : '',
                         }}
                     >
                         {showLogo ? (
@@ -1767,7 +1793,12 @@ function InnerTranslator(props: IInnerTranslatorProps) {
                             </div>
                         )}
                     </div>
-                    <div className={styles.popupCardContentContainer}>
+                    <div
+                        className={clsx(
+                            styles.popupCardContentContainer,
+                            settings.enableBackgroundBlur && styles.popupCardContentContainerBackgroundBlur
+                        )}
+                    >
                         {settings?.apiURL === defaultAPIURL && (
                             <div>
                                 <IpLocationNotification showSettings={showSettings} />
@@ -1831,14 +1862,28 @@ function InnerTranslator(props: IInnerTranslatorProps) {
                                             overrides={{
                                                 Root: {
                                                     style: {
-                                                        fontSize: '15px !important',
+                                                        fontSize: `${settings.fontSize}px !important`,
                                                         width: '100%',
                                                         borderRadius: '0px',
+                                                        background: settings.enableBackgroundBlur
+                                                            ? 'transparent !important'
+                                                            : undefined,
+                                                        borderWidth: settings.enableBackgroundBlur ? '1px' : undefined,
                                                     },
+                                                },
+                                                InputContainer: {
+                                                    style: settings.enableBackgroundBlur
+                                                        ? ({ $theme, $isFocused }) => ({
+                                                              background:
+                                                                  ($isFocused
+                                                                      ? $theme.colors.backgroundSecondary
+                                                                      : $theme.colors.backgroundTertiary) + '80',
+                                                          })
+                                                        : null,
                                                 },
                                                 Input: {
                                                     style: {
-                                                        fontSize: '15px !important',
+                                                        fontSize: `${settings.fontSize}px !important`,
                                                         padding: '4px 8px',
                                                         color:
                                                             themeType === 'dark'
@@ -2023,6 +2068,13 @@ function InnerTranslator(props: IInnerTranslatorProps) {
                                                 className={styles.actionButton}
                                                 onClick={() => {
                                                     setEditableText('')
+                                                    setTranslatedText('')
+                                                    setTranslateDeps((v) => {
+                                                        return {
+                                                            ...v,
+                                                            text: '',
+                                                        }
+                                                    })
                                                     editorRef.current?.focus()
                                                 }}
                                             >
@@ -2062,14 +2114,40 @@ function InnerTranslator(props: IInnerTranslatorProps) {
                                     </div>
                                 )}
                                 {errorMessage ? (
-                                    <div className={styles.errorMessage}>
-                                        <span>{errorMessage}</span>
-                                        <Tooltip content={t('Retry')} placement='bottom'>
-                                            <div onClick={() => forceTranslate()} className={styles.actionButton}>
-                                                <RxReload size={15} />
+                                    <>
+                                        <div className={styles.errorMessage}>
+                                            <span>{errorMessage}</span>
+                                            <Tooltip content={t('Retry')} placement='bottom'>
+                                                <div onClick={() => forceTranslate()} className={styles.actionButton}>
+                                                    <RxReload size={15} />
+                                                </div>
+                                            </Tooltip>
+                                        </div>
+                                        {settings.provider === 'ChatGPT' && (
+                                            <div
+                                                style={{
+                                                    color: theme.colors.contentPrimary,
+                                                }}
+                                            >
+                                                {t('Go to the')}{' '}
+                                                <a
+                                                    target='_blank'
+                                                    href={
+                                                        settings?.i18n?.toLowerCase().includes('zh')
+                                                            ? 'https://github.com/openai-translator/openai-translator/blob/main/docs/chatgpt-cn.md'
+                                                            : 'https://github.com/openai-translator/openai-translator/blob/main/docs/chatgpt.md'
+                                                    }
+                                                    rel='noreferrer'
+                                                    style={{
+                                                        color: theme.colors.contentSecondary,
+                                                    }}
+                                                >
+                                                    FAQ Page
+                                                </a>{' '}
+                                                {t('to get the solutions.')}
                                             </div>
-                                        </Tooltip>
-                                    </div>
+                                        )}
+                                    </>
                                 ) : (
                                     <div
                                         style={{
@@ -2079,6 +2157,9 @@ function InnerTranslator(props: IInnerTranslatorProps) {
                                         <div
                                             ref={translatedContentRef}
                                             className={styles.popupCardTranslatedContentContainer}
+                                            style={{
+                                                fontSize: settings.fontSize,
+                                            }}
                                         >
                                             <div>
                                                 {currentTranslateMode === 'explain-code' ||
@@ -2203,12 +2284,106 @@ function InnerTranslator(props: IInnerTranslatorProps) {
                                     <div
                                         style={{
                                             fontSize: '12px',
+                                            color: theme.colors.contentPrimary,
                                         }}
                                     >
                                         <span>{t('Please login to ChatGPT Web')}: </span>
-                                        <a href='https://chat.openai.com' target='_blank' rel='noreferrer'>
+                                        <a
+                                            href='https://chat.openai.com'
+                                            target='_blank'
+                                            rel='noreferrer'
+                                            style={{
+                                                color: theme.colors.contentSecondary,
+                                            }}
+                                        >
                                             Login
                                         </a>
+                                    </div>
+                                )}
+                                {isNotLogin && settings?.provider === 'Kimi' && (
+                                    <div
+                                        style={{
+                                            fontSize: '12px',
+                                            color: theme.colors.contentPrimary,
+                                        }}
+                                    >
+                                        {isDesktopApp() ? (
+                                            <>
+                                                {t('Go to the')}{' '}
+                                                <a
+                                                    target='_blank'
+                                                    href={
+                                                        settings?.i18n?.toLowerCase().includes('zh')
+                                                            ? 'https://github.com/openai-translator/openai-translator/blob/main/docs/kimi-cn.md'
+                                                            : 'https://github.com/openai-translator/openai-translator/blob/main/docs/kimi.md'
+                                                    }
+                                                    rel='noreferrer'
+                                                    style={{
+                                                        color: theme.colors.contentSecondary,
+                                                    }}
+                                                >
+                                                    Tutorial
+                                                </a>{' '}
+                                                {t('to get your API Key.')}
+                                            </>
+                                        ) : (
+                                            <>
+                                                <span>{t('Please login to Kimi Web')}: </span>
+                                                <a
+                                                    href='https://kimi.moonshot.cn/'
+                                                    target='_blank'
+                                                    rel='noreferrer'
+                                                    style={{
+                                                        color: theme.colors.contentSecondary,
+                                                    }}
+                                                >
+                                                    Login
+                                                </a>
+                                            </>
+                                        )}
+                                    </div>
+                                )}
+                                {isNotLogin && settings?.provider === 'ChatGLM' && (
+                                    <div
+                                        style={{
+                                            fontSize: '12px',
+                                            color: theme.colors.contentPrimary,
+                                        }}
+                                    >
+                                        {isDesktopApp() ? (
+                                            <>
+                                                {t('Go to the')}{' '}
+                                                <a
+                                                    target='_blank'
+                                                    href={
+                                                        settings?.i18n?.toLowerCase().includes('zh')
+                                                            ? 'https://github.com/openai-translator/openai-translator/blob/main/docs/chatglm-cn.md'
+                                                            : 'https://github.com/openai-translator/openai-translator/blob/main/docs/chatglm.md'
+                                                    }
+                                                    rel='noreferrer'
+                                                    style={{
+                                                        color: theme.colors.contentSecondary,
+                                                    }}
+                                                >
+                                                    Tutorial
+                                                </a>{' '}
+                                                {t('to get your API Key.')}
+                                            </>
+                                        ) : (
+                                            <>
+                                                <span>{t('Please login to ChatGLM Web')}: </span>
+                                                <a
+                                                    href='https://chatglm.cn/'
+                                                    target='_blank'
+                                                    rel='noreferrer'
+                                                    style={{
+                                                        color: theme.colors.contentSecondary,
+                                                    }}
+                                                >
+                                                    Login
+                                                </a>
+                                            </>
+                                        )}
                                     </div>
                                 )}
                             </div>
@@ -2221,11 +2396,7 @@ function InnerTranslator(props: IInnerTranslatorProps) {
                     className={styles.footer}
                     style={{
                         boxShadow: isScrolledToBottom ? undefined : theme.lighting.shadow700,
-                        background: isScrolledToBottom
-                            ? undefined
-                            : themeType === 'dark'
-                            ? 'rgba(31, 31, 31, 0.5)'
-                            : undefined,
+                        backgroundColor: getFooterBackgroundColor(),
                     }}
                 >
                     <Tooltip content={showSettings ? t('Go to Translator') : t('Go to Settings')} placement='right'>

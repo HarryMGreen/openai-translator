@@ -48,6 +48,9 @@ const settingKeys: Record<keyof ISettings, number> = {
     azureAPIURL: 1,
     azureAPIURLPath: 1,
     azureAPIModel: 1,
+    azMaxWords: 1,
+    enableMica: 1,
+    enableBackgroundBlur: 1,
     miniMaxGroupID: 1,
     miniMaxAPIKey: 1,
     miniMaxAPIModel: 1,
@@ -95,6 +98,13 @@ const settingKeys: Record<keyof ISettings, number> = {
     claudeAPIModel: 1,
     claudeAPIKey: 1,
     claudeCustomModelName: 1,
+    kimiRefreshToken: 1,
+    kimiAccessToken: 1,
+    chatglmAccessToken: 1,
+    chatglmRefreshToken: 1,
+    fontSize: 1,
+    uiFontSize: 1,
+    iconSize: 1,
 }
 
 export async function getSettings(): Promise<ISettings> {
@@ -172,6 +182,13 @@ export async function getSettings(): Promise<ISettings> {
     if (settings.automaticCheckForUpdates === undefined || settings.automaticCheckForUpdates === null) {
         settings.automaticCheckForUpdates = true
     }
+    if (settings.enableBackgroundBlur === undefined || settings.enableBackgroundBlur === null) {
+        if (settings.enableMica !== undefined && settings.enableMica !== null) {
+            settings.enableBackgroundBlur = settings.enableMica
+        } else {
+            settings.enableBackgroundBlur = false
+        }
+    }
     if (!settings.languageDetectionEngine) {
         settings.languageDetectionEngine = 'baidu'
     }
@@ -208,6 +225,18 @@ export async function getSettings(): Promise<ISettings> {
     }
     if (settings.geminiAPIURL === undefined || settings.geminiAPIURL === null) {
         settings.geminiAPIURL = defaultGeminiAPIURL
+    }
+    if (settings.fontSize === undefined || settings.fontSize === null) {
+        settings.fontSize = 15
+    }
+    if (settings.uiFontSize === undefined || settings.uiFontSize === null) {
+        settings.uiFontSize = 12
+    }
+    if (settings.iconSize === undefined || settings.iconSize === null) {
+        settings.iconSize = 15
+    }
+    if (settings.azMaxWords === undefined || settings.azMaxWords === null) {
+        settings.azMaxWords = 1024
     }
     return settings
 }
@@ -408,21 +437,39 @@ export async function fetchSSE(input: string, options: FetchSSEOptions) {
 
     if (isTauri()) {
         const id = uuidv4()
-        let unlisten: (() => void) | undefined = undefined
+        const unlistens: Array<() => void> = []
+        const unlisten = () => {
+            unlistens.forEach((cb) => cb())
+        }
         return await new Promise<void>((resolve, reject) => {
+            let isAborted = false
             options.signal?.addEventListener('abort', () => {
+                isAborted = true
                 unlisten?.()
+                reject()
                 emit('abort-fetch-stream', { id })
             })
+            listen('fetch-stream-status-code', (event: Event<{ id: string; status: number }>) => {
+                if (isAborted) {
+                    return
+                }
+                if (event.payload.id === id) {
+                    onStatusCode?.(event.payload.status)
+                }
+            })
+                .then((cb) => unlistens.push(cb))
+                .catch((e) => reject(e))
             listen(
                 'fetch-stream-chunk',
                 (event: Event<{ id: string; data: string; done: boolean; status: number }>) => {
+                    if (isAborted) {
+                        return
+                    }
                     const payload = event.payload
                     if (payload.id !== id) {
                         return
                     }
                     if (payload.done) {
-                        resolve()
                         return
                     }
                     if (payload.status !== 200) {
@@ -432,7 +479,6 @@ export async function fetchSSE(input: string, options: FetchSSEOptions) {
                         } catch (e) {
                             onError(payload.data)
                         }
-                        resolve()
                         return
                     }
                     if (useJSONParser) {
@@ -443,7 +489,7 @@ export async function fetchSSE(input: string, options: FetchSSEOptions) {
                 }
             )
                 .then((cb) => {
-                    unlisten = cb
+                    unlistens.push(cb)
                 })
                 .catch((e) => {
                     reject(e)
@@ -458,7 +504,11 @@ export async function fetchSSE(input: string, options: FetchSSEOptions) {
                     reject(e)
                 })
                 .finally(() => {
+                    if (isAborted) {
+                        return
+                    }
                     unlisten?.()
+                    resolve()
                 })
         })
     }
@@ -496,3 +546,5 @@ export function getAssetUrl(asset: string) {
     }
     return new URL(asset, import.meta.url).href
 }
+export const isMacOS = navigator.userAgent.includes('Mac OS X')
+export const isWindows = navigator.userAgent.includes('Windows')

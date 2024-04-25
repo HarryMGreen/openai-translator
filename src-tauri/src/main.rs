@@ -13,6 +13,7 @@ mod windows;
 mod writing;
 
 use config::get_config;
+use debug_print::debug_println;
 use parking_lot::Mutex;
 use serde_json::json;
 use std::env;
@@ -211,8 +212,8 @@ fn bind_mouse_hook() {
                     },
                     None => false,
                 };
-                // println!("is_text_selected_event: {}", is_text_selected_event);
-                // println!("is_click_on_thumb: {}", is_click_on_thumb);
+                // debug_println!("is_text_selected_event: {}", is_text_selected_event);
+                // debug_println!("is_click_on_thumb: {}", is_click_on_thumb);
                 if !is_text_selected_event && !is_click_on_thumb {
                     windows::close_thumb();
                     // println!("not text selected event");
@@ -226,10 +227,18 @@ fn bind_mouse_hook() {
 
                 if !is_click_on_thumb {
                     if RELEASE_THREAD_ID.is_locked() {
-                        // println!("release thread is locked");
                         return;
                     }
                     std::thread::spawn(move || {
+                        #[cfg(target_os = "macos")]
+                        {
+                            if !utils::is_valid_selected_frame().unwrap_or(false) {
+                                debug_println!("No valid selected frame");
+                                windows::close_thumb();
+                                return;
+                            }
+                        }
+
                         let _lock = RELEASE_THREAD_ID.lock();
                         let selected_text = utils::get_selected_text().unwrap_or_default();
                         if !selected_text.is_empty() {
@@ -238,7 +247,6 @@ fn bind_mouse_hook() {
                             }
                             windows::show_thumb(x, y);
                         } else {
-                            // println!("selected text is empty");
                             windows::close_thumb();
                         }
                     });
@@ -248,17 +256,7 @@ fn bind_mouse_hook() {
                     if !selected_text.is_empty() {
                         let window = windows::show_translator_window(false, true, false);
                         utils::send_text(selected_text);
-                        if cfg!(target_os = "windows") {
-                            window.set_always_on_top(true).unwrap();
-                            let always_on_top = ALWAYS_ON_TOP.load(Ordering::Acquire);
-                            if !always_on_top {
-                                std::thread::spawn(move || {
-                                    window.set_always_on_top(false).unwrap();
-                                });
-                            }
-                        } else {
-                            window.set_focus().unwrap();
-                        }
+                        window.set_focus().unwrap();
                     }
                 }
             }
@@ -328,18 +326,22 @@ fn main() {
             tray::create_tray(&app_handle)?;
             app_handle.plugin(tauri_plugin_global_shortcut::Builder::new().build())?;
             app_handle.plugin(tauri_plugin_updater::Builder::new().build())?;
+            // create thumb window
+            let _ = windows::get_thumb_window(0, 0);
             if silently {
-                let window = get_translator_window(false, false, false);
-                window.unminimize().unwrap();
-                window.hide().unwrap();
+                // create translator window
+                let _ = get_translator_window(false, false, false);
+                windows::do_hide_translator_window();
+                debug_println!("translator window is hidden");
             } else {
                 let window = get_translator_window(false, false, false);
                 window.set_focus().unwrap();
                 window.show().unwrap();
             }
             if !query_accessibility_permissions() {
-                let window = app.get_webview_window(TRANSLATOR_WIN_NAME).unwrap();
-                window.minimize().unwrap();
+                if let Some(window) = app.get_webview_window(TRANSLATOR_WIN_NAME) {
+                    window.minimize().unwrap();
+                }
                 app.notification()
                     .builder()
                     .title("Accessibility permissions")
@@ -483,15 +485,8 @@ fn main() {
                 return;
             }
 
-            #[cfg(target_os = "macos")]
-            {
-                tauri::AppHandle::hide(&app.app_handle()).unwrap();
-            }
-            #[cfg(not(target_os = "macos"))]
-            {
-                let window = app.get_webview_window(label.as_str()).unwrap();
-                window.hide().unwrap();
-            }
+            windows::do_hide_translator_window();
+
             api.prevent_close();
         }
         _ => {}

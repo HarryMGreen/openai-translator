@@ -61,6 +61,9 @@ export interface ISettings {
     azureAPIURL: string
     azureAPIURLPath: string
     azureAPIModel: string
+    azMaxWords: number
+    enableBackgroundBlur: boolean
+    enableMica: boolean // deprecated, please use enableBackgroundBlur
     miniMaxGroupID: string
     miniMaxAPIKey: string
     miniMaxAPIModel: string
@@ -126,4 +129,11 @@ export interface ISettings {
     claudeAPIModel: string
     claudeAPIKey: string
     claudeCustomModelName: string
+    kimiAccessToken: string
+    kimiRefreshToken: string
+    chatglmAccessToken: string
+    chatglmRefreshToken: string
+    fontSize: number
+    uiFontSize: number
+    iconSize: number
 }

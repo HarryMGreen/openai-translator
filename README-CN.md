@@ -84,7 +84,7 @@
 
 ### 手动安装
 
-1. 在 [Latest Release](https://github.com/yetone/openai-translator/releases/latest) 页面下载以 `.msi` 结尾的安装包
+1. 在 [Latest Release](https://github.com/yetone/openai-translator/releases/latest) 页面下载以 `.exe` 结尾的安装包
 2. 下载完成后双击安装包进行安装
 3. 如果提示不安全，可以点击 `更多信息` -> `仍要运行` 进行安装
 4. 开始使用吧！
@@ -162,7 +162,7 @@ const API_URL_PATH = `/openai/deployments/${deployName}/chat/completions?api-ver
 
 - resourceName: 你的 Azure OpenAI Service 资源名称。
 - deployName: 你的 Azure OpenAI Service 模型部署名称，更改部署名称以切换模型。
-- api-version: 2023-05-15，或者更新的版本。
+- api-version: 2023-05-15，或者更新的版本。（受支持的API version列表可以在[Azure官方文档](https://learn.microsoft.com/en-us/azure/ai-services/openai/reference#completions)查找）
 
 # License
 

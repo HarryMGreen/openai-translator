@@ -14,8 +14,10 @@ export abstract class AbstractOpenAI extends AbstractEngine {
             { name: 'gpt-3.5-turbo-16k', id: 'gpt-3.5-turbo-16k' },
             { name: 'gpt-3.5-turbo-16k-0613', id: 'gpt-3.5-turbo-16k-0613' },
             { name: 'gpt-4', id: 'gpt-4' },
+            { name: 'gpt-4-turbo (recommended)', id: 'gpt-4-turbo' },
+            { name: 'gpt-4-turbo-2024-04-09', id: 'gpt-4-turbo-2024-04-09' },
             { name: 'gpt-4-turbo-preview', id: 'gpt-4-turbo-preview' },
-            { name: 'gpt-4-0125-preview (recommended)', id: 'gpt-4-0125-preview' },
+            { name: 'gpt-4-0125-preview ', id: 'gpt-4-0125-preview' },
             { name: 'gpt-4-1106-preview', id: 'gpt-4-1106-preview' },
             { name: 'gpt-4-0314', id: 'gpt-4-0314' },
             { name: 'gpt-4-0613', id: 'gpt-4-0613' },
@@ -48,13 +50,10 @@ export abstract class AbstractOpenAI extends AbstractEngine {
         return true
     }
 
-    async sendMessage(req: IMessageRequest): Promise<void> {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    async getBaseRequestBody(): Promise<Record<string, any>> {
         const model = await this.getAPIModel()
-        const url = `${await this.getAPIURL()}${await this.getAPIURLPath()}`
-        const headers = await this.getHeaders()
-        const isChatAPI = await this.isChatAPI()
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const body: Record<string, any> = {
+        return {
             model,
             temperature: 0,
             top_p: 1,
@@ -62,6 +61,13 @@ export abstract class AbstractOpenAI extends AbstractEngine {
             presence_penalty: 1,
             stream: true,
         }
+    }
+
+    async sendMessage(req: IMessageRequest): Promise<void> {
+        const url = `${await this.getAPIURL()}${await this.getAPIURLPath()}`
+        const headers = await this.getHeaders()
+        const isChatAPI = await this.isChatAPI()
+        const body = await this.getBaseRequestBody()
         if (!isChatAPI) {
             // Azure OpenAI Service supports multiple API.
             // We should check if the settings.apiURLPath is match `/deployments/{deployment-id}/chat/completions`.
