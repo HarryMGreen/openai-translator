@@ -50,7 +50,9 @@ futures-util = "0.3.29"
 tauri-plugin-aptabase = { git = "https://github.com/aptabase/tauri-plugin-aptabase", branch = "v2" }
 screenshots = "0.7.2"
 image = "0.24.7"
-get-selected-text = "0.1.4"
+get-selected-text = "0.1.6"
+specta = "=2.0.0-rc.12"
+tauri-specta = { version = "2.0.0-rc.10", features = ["javascript", "typescript"] }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 cocoa = "0.24"
@@ -62,7 +64,7 @@ accessibility-ng = "0.1.6"
 accessibility-sys-ng = "0.1.3"
 
 [target.'cfg(windows)'.dependencies]
-windows = { version = "0.54.0", features = [ "Win32_UI_WindowsAndMessaging", "Win32_Foundation", "Graphics_Imaging", "Media_Ocr", "Foundation", "Foundation_Collections", "Globalization", "Storage", "Storage_Streams" ] }
+windows = { version = "0.56.0", features = [ "Win32_UI_WindowsAndMessaging", "Win32_Foundation", "Graphics_Imaging", "Media_Ocr", "Foundation", "Foundation_Collections", "Globalization", "Storage", "Storage_Streams" ] }
 
 [features]
 # by default Tauri runs in production mode

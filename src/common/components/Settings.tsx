@@ -67,6 +67,7 @@ import { ProxyTester } from './ProxyTester'
 import { CUSTOM_MODEL_ID } from '../constants'
 import { isMacOS } from '../utils'
 import NumberInput from './NumberInput'
+import { DurationPicker } from './DurationPicker'
 
 const langOptions: Value = supportedLanguages.reduce((acc, [id, label]) => {
     return [
@@ -1127,7 +1128,7 @@ const useHotkeyRecorderStyles = createUseStyles({
         lineHeight: '32px',
         padding: '0 14px',
         borderRadius: '4px',
-        width: '200px',
+        width: '300px',
         cursor: 'pointer',
         border: '1px dashed transparent',
         backgroundColor: props.theme.colors.backgroundTertiary,
@@ -1356,6 +1357,7 @@ function ProviderSelector({ value, onChange, hasPromotion }: IProviderSelectorPr
               { label: 'Moonshot', id: 'Moonshot' },
               { label: 'Groq', id: 'Groq' },
               { label: 'Claude', id: 'Claude' },
+              { label: 'DeepSeek', id: 'DeepSeek' },
           ] as {
               label: string
               id: Provider
@@ -1372,6 +1374,7 @@ function ProviderSelector({ value, onChange, hasPromotion }: IProviderSelectorPr
               { label: 'Moonshot', id: 'Moonshot' },
               { label: 'Groq', id: 'Groq' },
               { label: 'Claude', id: 'Claude' },
+              { label: 'DeepSeek', id: 'DeepSeek' },
           ] as {
               label: string
               id: Provider
@@ -2074,6 +2077,13 @@ export function InnerSettings({
                                 <Input size='compact' onBlur={onBlur} />
                             </FormItem>
                             <FormItem
+                                name='ollamaModelLifetimeInMemory'
+                                label={t('The survival time of the Ollama model in memory')}
+                                required={values.provider === 'Ollama'}
+                            >
+                                <DurationPicker size='compact' />
+                            </FormItem>
+                            <FormItem
                                 name='ollamaAPIModel'
                                 label={t('API Model')}
                                 required={values.provider === 'Ollama'}
@@ -2389,7 +2399,12 @@ export function InnerSettings({
                                 label={t('API Model')}
                                 required={values.provider === 'Gemini'}
                             >
-                                <APIModelSelector provider='Gemini' currentProvider={values.provider} onBlur={onBlur} />
+                                <APIModelSelector
+                                    provider='Gemini'
+                                    currentProvider={values.provider}
+                                    apiKey={values.geminiAPIKey}
+                                    onBlur={onBlur}
+                                />
                             </FormItem>
                         </div>
                         <div
@@ -2427,6 +2442,45 @@ export function InnerSettings({
                                     provider='Cohere'
                                     currentProvider={values.provider}
                                     apiKey={values.cohereAPIKey}
+                                    onBlur={onBlur}
+                                />
+                            </FormItem>
+                        </div>
+                        <div
+                            style={{
+                                display: values.provider === 'DeepSeek' ? 'block' : 'none',
+                            }}
+                        >
+                            <FormItem
+                                required={values.provider === 'DeepSeek'}
+                                name='deepSeekAPIKey'
+                                label='DeepSeek API Key'
+                                caption={
+                                    <div>
+                                        {t('Go to the')}{' '}
+                                        <a
+                                            target='_blank'
+                                            href='https://platform.deepseek.com/api_keys'
+                                            rel='noreferrer'
+                                            style={linkStyle}
+                                        >
+                                            DeepSeek Dashboard
+                                        </a>{' '}
+                                        {t('to get your API Key.')}
+                                    </div>
+                                }
+                            >
+                                <Input autoFocus type='password' size='compact' onBlur={onBlur} />
+                            </FormItem>
+                            <FormItem
+                                name='deepSeekAPIModel'
+                                label={t('API Model')}
+                                required={values.provider === 'DeepSeek'}
+                            >
+                                <APIModelSelector
+                                    provider='DeepSeek'
+                                    currentProvider={values.provider}
+                                    apiKey={values.deepSeekAPIKey}
                                     onBlur={onBlur}
                                 />
                             </FormItem>
@@ -2512,7 +2566,12 @@ export function InnerSettings({
                                 />
                             </FormItem>
                             <FormItem name='apiModel' label={t('API Model')} required={values.provider === 'OpenAI'}>
-                                <APIModelSelector provider='OpenAI' currentProvider={values.provider} onBlur={onBlur} />
+                                <APIModelSelector
+                                    provider='OpenAI'
+                                    currentProvider={values.provider}
+                                    apiKey={values.apiKeys}
+                                    onBlur={onBlur}
+                                />
                             </FormItem>
                             <div
                                 style={{
@@ -2571,7 +2630,12 @@ export function InnerSettings({
                                 label={t('API Model')}
                                 required={values.provider === 'Azure'}
                             >
-                                <APIModelSelector provider='Azure' currentProvider={values.provider} onBlur={onBlur} />
+                                <APIModelSelector
+                                    provider='Azure'
+                                    currentProvider={values.provider}
+                                    apiKey={values.azureAPIKeys}
+                                    onBlur={onBlur}
+                                />
                             </FormItem>
                             <FormItem name='azureAPIURL' label={t('API URL')} required={values.provider === 'Azure'}>
                                 <Input size='compact' onBlur={onBlur} />

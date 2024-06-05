@@ -3,9 +3,9 @@ import { createParser } from 'eventsource-parser'
 import { IBrowser, ISettings } from './types'
 import { getUniversalFetch } from './universal-fetch'
 import { v4 as uuidv4 } from 'uuid'
-import { invoke } from '@tauri-apps/api/core'
 import { listen, Event, emit } from '@tauri-apps/api/event'
 import { parse as bestEffortJSONParse } from 'best-effort-json-parser'
+import { commands } from '@/tauri/bindings'
 
 export const defaultAPIURL = 'https://api.openai.com'
 export const defaultAPIURLPath = '/v1/chat/completions'
@@ -89,6 +89,7 @@ const settingKeys: Record<keyof ISettings, number> = {
     ollamaAPIURL: 1,
     ollamaAPIModel: 1,
     ollamaCustomModelName: 1,
+    ollamaModelLifetimeInMemory: 1,
     groqAPIURL: 1,
     groqAPIURLPath: 1,
     groqAPIModel: 1,
@@ -105,6 +106,8 @@ const settingKeys: Record<keyof ISettings, number> = {
     chatglmRefreshToken: 1,
     cohereAPIKey: 1,
     cohereAPIModel: 1,
+    deepSeekAPIKey: 1,
+    deepSeekAPIModel: 1,
     fontSize: 1,
     uiFontSize: 1,
     iconSize: 1,
@@ -240,6 +243,12 @@ export async function getSettings(): Promise<ISettings> {
     }
     if (settings.azMaxWords === undefined || settings.azMaxWords === null) {
         settings.azMaxWords = 1024
+    }
+    if (settings.hideTheIconInTheDock === undefined || settings.hideTheIconInTheDock === null) {
+        settings.hideTheIconInTheDock = true
+    }
+    if (settings.ollamaModelLifetimeInMemory === undefined || settings.ollamaModelLifetimeInMemory === null) {
+        settings.ollamaModelLifetimeInMemory = '5m'
     }
     return settings
 }
@@ -490,11 +499,8 @@ export async function fetchSSE(input: string, options: FetchSSEOptions) {
                     reject(e)
                 })
 
-            invoke('fetch_stream', {
-                id,
-                url: input,
-                optionsStr: JSON.stringify(fetchOptions),
-            })
+            commands
+                .fetchStream(id, input, JSON.stringify(fetchOptions))
                 .catch((e) => {
                     reject(e)
                 })
